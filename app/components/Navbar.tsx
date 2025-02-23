@@ -11,25 +11,19 @@ import { cn } from "@/lib/utils"
 
 const routes = [
   {
-    label: 'Home',
+    label: 'OTPMaya',
     icon: Home,
     href: '/',
   },
   {
-    label: 'Profile',
-    icon: User,
-    href: '/profile',
-  },
-  {
-    label: 'Settings',
-    icon: Settings,
-    href: '/settings',
+    label: 'Dashboard',
+    icon: Home,
+    href: '/dashboard',
   },
 ]
 
 export default function Navbar() {
   const [open, setOpen] = useState(false)
-  const router = useRouter()
   const { isSignedIn } = useAuth()
 
   const authLinks = (

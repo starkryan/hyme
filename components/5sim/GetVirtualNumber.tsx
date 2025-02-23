@@ -1,13 +1,33 @@
 import { useState, useEffect, useRef } from 'react';
 import { getVirtualNumber, getProducts, getSmsCode, cancelOrder, getCountries, banOrder, finishOrder } from '@/lib/5simService';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Clock, Copy, Check, AlertTriangle } from 'lucide-react';
+import { Copy, Check, AlertTriangle, XCircle, CircleCheck, Ban } from 'lucide-react';
 import { Label } from '@/components/ui/label';
+import { Spinner } from "@/components/ui/spinner"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import { cn } from "@/lib/utils"
+import { ChevronsUpDown } from 'lucide-react';
+import { Progress } from "@/components/ui/progress";
+
+
+const variants = ['default', 'circle', 'pinwheel', 'circle-filled', 'ellipsis', 'ring', 'bars', 'infinite'];
+
+
 
 interface SmsMessage {
   created_at: string;
@@ -46,6 +66,13 @@ const GetVirtualNumber = () => {
   const [isOtpCopied, setIsOtpCopied] = useState(false);
   const [orderStatus, setOrderStatus] = useState<OrderStatus | null>(null);
   const [isOtpVerified, setIsOtpVerified] = useState(true);
+  const [countryOpen, setCountryOpen] = useState(false);
+  const [productOpen, setProductOpen] = useState(false);
+  const [orderCreatedAt, setOrderCreatedAt] = useState<string | null>(null);
+  const [isOrderFinished, setIsOrderFinished] = useState(false);
+  const [otpTimeout, setOtpTimeout] = useState<number | null>(null);
+  const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const [isTimeoutActive, setIsTimeoutActive] = useState(false);
 
   useEffect(() => {
     const fetchAvailableCountries = async () => {
@@ -123,6 +150,7 @@ const GetVirtualNumber = () => {
               clearInterval(smsCheckInterval.current);
               smsCheckInterval.current = null; // Clear the interval ID
             }
+            setOrderCreatedAt(data.created_at || null);
           } else {
             console.log('Waiting for SMS...');
             setOrderStatus(data?.status as OrderStatus);
@@ -149,6 +177,35 @@ const GetVirtualNumber = () => {
     }
   }, [number?.id, isCheckingSms]);
 
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout | null = null;
+
+    if (isTimeoutActive && timeLeft !== null && timeLeft > 0) {
+      intervalId = setInterval(() => {
+        setTimeLeft((prevTimeLeft) => {
+          if (prevTimeLeft === null) return null;
+          if (prevTimeLeft <= 1) {
+            clearInterval(intervalId!);
+            setIsTimeoutActive(false);
+            setSmsCode(null);
+            setFullSms(null);
+            toast.error("OTP timed out", {
+              description: "Please request a new OTP.",
+            });
+            return 0;
+          }
+          return prevTimeLeft - 1;
+        });
+      }, 1000);
+    }
+
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+  }, [isTimeoutActive, timeLeft, toast]);
+
   const handleGetNumber = async () => {
     setIsLoading(true);
     setError(null);
@@ -157,6 +214,10 @@ const GetVirtualNumber = () => {
     setIsCheckingSms(false);
     setIsOrderCancelled(false);
     setOrderStatus(null);
+    setIsOrderFinished(false);
+    setOtpTimeout(300); // 5 minutes in seconds
+    setTimeLeft(300);
+    setIsTimeoutActive(true);
 
     try {
       if (!selectedProduct) {
@@ -176,6 +237,7 @@ const GetVirtualNumber = () => {
           toast.success(`Number ${data.phone} received!`);
           setIsCheckingSms(true); // Start checking for SMS
           setOrderStatus("PENDING");
+          setOrderCreatedAt(data.created_at || null);
         } else {
           setError('Phone number not received from the service.');
           toast.error('Phone number not received from the service.');
@@ -190,7 +252,7 @@ const GetVirtualNumber = () => {
         setError('No free phones available for the selected service. Please try again later or select a different service.');
         toast.error('No free phones available for the selected service. Please try again later or select a different service.');
       }
-       else if (e.message.includes('Request failed with status code 400')) {
+      else if (e.message.includes('Request failed with status code 400')) {
         setError('Invalid product selected for the chosen country. Please select a valid product.');
         toast.error('Invalid product selected for the chosen country. Please select a valid product.');
       }
@@ -223,6 +285,7 @@ const GetVirtualNumber = () => {
         setIsCheckingSms(false);
         setIsOrderCancelled(true);
         setOrderStatus("CANCELED");
+        setIsOrderFinished(true);
       } else {
         setError('Failed to cancel order.');
         toast.error('Failed to cancel order.');
@@ -257,6 +320,7 @@ const GetVirtualNumber = () => {
         setIsOrderCancelled(true);
         setOrderStatus("BANNED");
         setIsOtpVerified(false); // Disable complete and ban options
+        setIsOrderFinished(true);
       } else {
         setError('Failed to ban number.');
         toast.error('Failed to ban number.');
@@ -271,11 +335,48 @@ const GetVirtualNumber = () => {
     }
   };
 
+  const handleFinishOrder = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      if (!orderId) {
+        setError('No order ID to finish.');
+        toast.error('No order ID to finish.');
+        return;
+      }
+
+      // Here, you would typically call an API endpoint to mark the order as finished.
+      // Since there's no direct 5sim API to "finish" an order, you might need to implement
+      // this logic on your backend, which then interacts with 5sim or just updates your DB.
+      // For demonstration purposes, I'll simulate a successful finish.
+
+      // Simulate API call
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate network request
+
+      toast.success('Order finished successfully.');
+      setNumber(null);
+      setSmsCode(null);
+      setIsCheckingSms(false);
+      setIsOrderCancelled(true);
+      setOrderStatus("FINISHED");
+      setIsOrderFinished(true);
+
+    } catch (e: any) {
+      console.error('Error finishing order:', e);
+      setError(e.message || 'An unexpected error occurred.');
+      toast.error(e.message || 'An unexpected error occurred.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleCopyToClipboard = (text: string, setState: (value: boolean) => void) => {
     navigator.clipboard.writeText(text)
       .then(() => {
         setState(true);
-        toast.success('Copied to clipboard!');
+        toast.success('Copied to clipboard!', {
+          className: 'bg-green-500 text-white'
+        });
         setTimeout(() => setState(false), 2000); // Reset state after 2 seconds
       })
       .catch(err => {
@@ -304,131 +405,295 @@ const GetVirtualNumber = () => {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Get Virtual Number</CardTitle>
+    <Card className="p-4 md:p-6 shadow-md rounded-xl ">
+      <CardHeader className="pb-4">
+        <CardTitle className="text-xl md:text-2xl font-semibold text-center">Get Virtual Number</CardTitle>
       </CardHeader>
-      <CardContent>
-        <div className="grid gap-4">
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="country" className="text-right">
-              Country:
-            </Label>
-            <Select onValueChange={setCountryCode} defaultValue={countryCode}>
-              <SelectTrigger className="col-span-3">
-                <SelectValue placeholder="Select a country" />
-              </SelectTrigger>
-              <SelectContent>
-                {isCountryLoading ? (
-                  <SelectItem disabled>Loading countries...</SelectItem>
-                ) : availableCountries.length > 0 ? (
-                  availableCountries.map((country, index) => (
-                    <SelectItem key={index} value={country}>
-                      {country}
-                    </SelectItem>
-                  ))
-                ) : (
-                  <SelectItem disabled>No countries available</SelectItem>
-                )}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="product" className="text-right">
-              Product:
-            </Label>
-            <Select onValueChange={setSelectedProduct} key={products.length}>
-              <SelectTrigger className="col-span-3">
-                <SelectValue placeholder="Select a product" />
-              </SelectTrigger>
-              <SelectContent>
-                {isProductLoading ? (
-                  <SelectItem disabled>Loading products...</SelectItem>
-                ) : products.length > 0 ? (
-                  products.map((product) => (
-                    <SelectItem key={product.id} value={product.id.toString()}>
-                      {product.name} - ${product.Price} - {product.Qty}
-                    </SelectItem>
-                  ))
-                ) : (
-                  <SelectItem disabled>No products available</SelectItem>
-                )}
-              </SelectContent>
-            </Select>
-          </div>
-          <Button onClick={handleGetNumber} disabled={isLoading || isOrderCancelled} className="col-span-4">
-            {isLoading ? 'Loading...' : 'Get Number'}
-          </Button>
-          {number && number.phone && (
-            <>
-              <div className="col-span-4 flex items-center justify-between rounded-md border p-2">
-                <div className="flex-grow">
-                  <Badge variant="secondary">Number:</Badge> {number.phone}
-                </div>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => handleCopyToClipboard(number.phone, setIsNumberCopied)}
-                  disabled={isNumberCopied}
-                >
-                  {isNumberCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                </Button>
-              </div>
-              {orderStatus && (
-                <div className="col-span-4">
-                  <Badge className={getStatusColor(orderStatus)}>
-                    {orderStatus}
-                  </Badge>
-                </div>
-              )}
-            </>
-          )}
-          {isCheckingSms && !smsCode && (
-            <div className="col-span-4 flex items-center space-x-2">
-              <Clock className="h-4 w-4 animate-spin" />
-              <span>Waiting for OTP...</span>
-            </div>
-          )}
-          {smsCode && (
-            <div className="col-span-4">
-              <div className="col-span-4 flex items-center justify-between rounded-md border p-2">
-                <div className="flex-grow">
-                  <Badge variant="secondary">SMS Code:</Badge> {smsCode}
-                </div>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => handleCopyToClipboard(smsCode, setIsOtpCopied)}
-                  disabled={isOtpCopied}
-                >
-                  {isOtpCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                </Button>
-              </div>
-            </div>
-          )}
-          {fullSms && (
-            <div className="col-span-4 rounded-md border p-4">
-              <Badge variant="secondary">Full SMS:</Badge>
-              <p className="mt-2">{fullSms}</p>
-            </div>
-          )}
-          {error && (
-            <div className="col-span-4 flex items-center space-x-2">
-              <AlertTriangle className="h-4 w-4 text-red-500" />
-              <Badge variant="destructive">{error}</Badge>
-            </div>
-          )}
-          {number && (
-            <Button onClick={handleCancelOrder} disabled={isLoading} className="col-span-4">
-              Cancel Order
-            </Button>
-          )}
-          {number && (
-            <Button onClick={handleBanNumber} disabled={isLoading} className="col-span-4">
-              Ban Number
-            </Button>
-          )}
+      <CardContent className="grid gap-4">
+        {/* Country Selection */}
+        <div className="grid gap-2">
+          <Label htmlFor="country" className="text-sm font-medium">Country</Label>
+          <Popover open={countryOpen} onOpenChange={setCountryOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                role="combobox"
+                aria-expanded={countryOpen}
+                className="w-full justify-between text-sm"
+                disabled={isCountryLoading}
+              >
+                {countryCode ? (
+                  <div className="flex items-center gap-2">
+                    <span>{countryCode.toUpperCase()}</span>
+                  </div>
+                ) : "Select country..."}
+                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                {isCountryLoading && <Spinner variant="circle" className="ml-2 h-4 w-4" />}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-full p-0">
+              <Command>
+                <CommandInput placeholder="Search country..." />
+                <CommandList>
+                  <CommandEmpty>No country found.</CommandEmpty>
+                  <CommandGroup>
+                    {availableCountries.length > 0 ? (
+                      availableCountries.map((country) => (
+                        <CommandItem
+                          key={country}
+                          value={country}
+                          onSelect={(currentValue) => {
+                            setCountryCode(currentValue);
+                            setCountryOpen(false);
+                          }}
+                          className="flex items-center gap-2"
+                        >
+                          <span>{country.toUpperCase()}</span>
+                        </CommandItem>
+                      ))
+                    ) : (
+                      <CommandItem disabled>No countries available</CommandItem>
+                    )}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
         </div>
+
+        {/* Product Selection */}
+        <div className="grid gap-2">
+          <Label htmlFor="product" className="text-sm font-medium">Product</Label>
+          <Popover open={productOpen} onOpenChange={setProductOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                role="combobox"
+                aria-expanded={productOpen}
+                className="w-full justify-between text-sm"
+                disabled={isProductLoading}
+              >
+                {selectedProduct
+                  ? products.find((product) => product.id.toString() === selectedProduct)?.name
+                  : "Select product..."}
+                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                {isProductLoading && <Spinner variant="infinite" className="ml-2 h-4 w-4" />}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-full p-0">
+              <Command>
+                <CommandInput placeholder="Search product..." />
+                <CommandList>
+                  <CommandEmpty>No product found.</CommandEmpty>
+                  <CommandGroup>
+                    {products.length > 0 ? (
+                      products.map((product) => (
+                        <CommandItem
+                          key={product.id}
+                          value={product.id.toString()}
+                          onSelect={(currentValue) => {
+                            setSelectedProduct(currentValue);
+                            setProductOpen(false);
+                          }}
+                        >
+                          <Check
+                            className={cn(
+                              "mr-2 h-4 w-4",
+                              selectedProduct === product.id.toString() ? "opacity-100" : "opacity-0"
+                            )}
+                          />
+                          {product.name.charAt(0).toUpperCase() + product.name.slice(1)} - ${product.Price} - {product.Qty}
+                        </CommandItem>
+                      ))
+                    ) : (
+                      <CommandItem disabled>No products available</CommandItem>
+                    )}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+        </div>
+
+        {/* Get Number Button */}
+        <Button
+          onClick={handleGetNumber}
+          disabled={isLoading || isOrderCancelled || !selectedProduct}
+          className="rounded-md py-2 text-sm"
+        >
+          {isLoading ? (
+            <div className="flex items-center justify-center">
+              <Spinner variant="infinite" className="mr-2 h-4 w-4" />
+            </div>
+          ) : (
+            'Get Number'
+          )}
+        </Button>
+
+        {/* Display Number Information */}
+        {number && number.phone && (
+          <div className="grid gap-2">
+            <div className="flex items-center justify-between rounded-md border p-2 shadow-sm">
+              <div className="flex-grow flex items-center gap-2">
+                <Badge  className="text-xs">Number:</Badge>
+                <span className="text-sm font-medium">{number.phone}</span>
+              </div>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => handleCopyToClipboard(number.phone, setIsNumberCopied)}
+                disabled={isNumberCopied}
+                className="ml-2 h-8 w-8"
+              >
+                {isNumberCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              </Button>
+            </div>
+            <div className="grid grid-cols-3 gap-1 sm:gap-2 text-xs sm:text-sm">
+              <Badge variant="outline" className="flex flex-col items-center p-1 sm:p-1.5">
+                <span className="text-[10px] sm:text-xs">Country</span>
+                <span className="font-medium">{countryCode}</span>
+              </Badge>
+              <Badge variant="outline" className="flex flex-col items-center p-1 sm:p-1.5">
+                <span className="text-[10px] sm:text-xs">Order ID</span>
+                <span className="font-medium">{number.id}</span>
+              </Badge>
+              {orderCreatedAt && (
+                <Badge variant="outline" className="flex flex-col items-center p-1 sm:p-1.5">
+                  <span className="text-[10px] sm:text-xs">Time</span>
+                  <span className="font-medium">
+                    {new Date(orderCreatedAt).toLocaleTimeString()}
+                  </span>
+                </Badge>
+              )}
+            </div>
+
+            {orderStatus && (
+              <div className="text-sm text-center mt-2">
+                <Badge className={cn(getStatusColor(orderStatus), "text-xs")}>
+                  {orderStatus}
+                </Badge>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Waiting for OTP */}
+        {isCheckingSms && !smsCode && (
+          <div className="flex flex-col items-center justify-center space-y-2">
+            <div className="flex items-center space-x-2">
+              <Spinner variant="bars" className="h-4 w-4" />
+              <span className="text-sm">Waiting for OTP...</span>
+            </div>
+            {isTimeoutActive && timeLeft !== null && otpTimeout !== null && (
+              <>
+                <Progress value={((otpTimeout - timeLeft) / otpTimeout) * 100} className="w-full" />
+                <span className="text-xs text-muted-foreground">
+                  Time left: {timeLeft} seconds
+                </span>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Display SMS Code */}
+        {smsCode && (
+          <div className="grid gap-2">
+            <div className="flex items-center justify-between rounded-md border p-3 bg-gray-50 dark:bg-gray-800 shadow-sm">
+              <div className="flex-grow flex items-center gap-2">
+                <Badge variant="secondary" className="text-xs">SMS Code:</Badge>
+                <span className="text-sm font-medium">{smsCode}</span>
+              </div>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => handleCopyToClipboard(smsCode, setIsOtpCopied)}
+                disabled={isOtpCopied}
+                className="ml-2 h-8 w-8"
+              >
+                {isOtpCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Display Full SMS */}
+        {fullSms && (
+          <div className="rounded-md border p-3 bg-gray-50 dark:bg-gray-800 shadow-sm">
+            <Badge variant="secondary" className="text-xs">Full SMS:</Badge>
+            <p className="mt-2 text-sm">{fullSms}</p>
+          </div>
+        )}
+
+        {/* Display Error */}
+        {error && (
+          <div className="flex items-center space-x-2">
+            <AlertTriangle className="h-4 w-4 text-red-500" />
+            <Badge variant="destructive" className="text-xs">{error}</Badge>
+          </div>
+        )}
+
+        {/* Cancel Order Button */}
+        {number && (
+          <div className="grid justify-center mt-4 gap-2">
+            {/* Ban Number Button */}
+            <Button
+              onClick={handleBanNumber}
+              disabled={isLoading || isOrderCancelled || isOrderFinished}
+              className="text-sm"
+            >
+              {isLoading ? (
+                <div className="flex items-center justify-center">
+                  <Spinner variant="infinite" className="mr-2 h-4 w-4" />
+                  <span>Banning...</span>
+                </div>
+              ) : (
+                <>
+                  Ban Number
+                  <Ban className="ml-2 h-4 w-4" />
+                </>
+              )}
+            </Button>
+
+            <Button
+              onClick={handleCancelOrder}
+              disabled={isLoading || isOrderCancelled || isOrderFinished}
+              className="text-sm"
+            >
+              {isLoading ? (
+                <div className="flex items-center justify-center">
+                  <Spinner variant="infinite" className="mr-2 h-4 w-4" />
+                  <span>Cancelling...</span>
+                </div>
+              ) : (
+                <>
+                  Cancel Order
+                  <XCircle className="ml-2 h-4 w-4" />
+                </>
+              )}
+            </Button>
+          </div>
+        )}
+
+        {/* Finish Order Button */}
+        {smsCode && (
+          <Button
+            onClick={handleFinishOrder}
+            disabled={isLoading || isOrderCancelled || isOrderFinished || !smsCode}
+            className="text-sm"
+          >
+            {isLoading ? (
+              <div className="flex items-center justify-center">
+                <Spinner variant="infinite" className="mr-2 h-4 w-4" />
+                <span>Finishing...</span>
+              </div>
+            ) : (
+              <>
+                Finish Order
+                <CircleCheck className="ml-2 h-4 w-4" />
+              </>
+            )}
+          </Button>
+        )}
       </CardContent>
     </Card>
   );
