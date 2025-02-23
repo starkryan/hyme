@@ -1,16 +1,12 @@
 import type { Metadata } from 'next'
 import {
   ClerkProvider,
-  SignInButton,
-  SignUpButton,
-  SignedIn,
-  SignedOut,
-  UserButton,
 } from '@clerk/nextjs'
 import { Geist, Geist_Mono } from 'next/font/google'
 import './globals.css'
 import { Toaster } from 'sonner'  
-
+import Navbar from "@/app/components/Navbar";
+import { Footerdemo } from "@/app/components/Footer";
 const geistSans = Geist({
   variable: '--font-geist-sans',
   subsets: ['latin'],
@@ -36,8 +32,11 @@ export default function RootLayout({
       <html lang="en">
         <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
           <Toaster />
-         
-          {children}
+          <div className="min-h-screen flex flex-col">
+            <Navbar />
+            <main className="flex-1 ">{children}</main>
+            <Footerdemo />
+          </div>
         </body>
       </html>
     </ClerkProvider>

@@ -85,7 +85,7 @@ export default function SignInPage() {
     <div className="flex min-h-screen items-center justify-center bg-background p-6">
       <Card className="w-full max-w-sm border border-border shadow-md rounded-lg">
         <CardHeader className="text-center space-y-3">
-          <CardTitle className="text-3xl font-bold text-primary">OTPMaya</CardTitle>
+          <CardTitle className="text-3xl font-bold text-primary">Sign In</CardTitle>
           <CardDescription className="text-sm text-muted-foreground">
             Secure your account with OTPMaya
           </CardDescription>

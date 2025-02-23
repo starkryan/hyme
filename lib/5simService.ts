@@ -1,16 +1,10 @@
-import axios from 'axios';
+import axios, { AxiosError, AxiosInstance, AxiosResponse } from 'axios';
 
+// Configuration constants
 const API_URL = process.env.NEXT_PUBLIC_5SIM_API_URL || 'https://5sim.net/v1';
 const API_KEY = process.env.NEXT_PUBLIC_5SIM_API_KEY;
 
-// Create axios instance with default headers
-const api = axios.create({
-  headers: {
-    'Authorization': `Bearer ${API_KEY}`,
-    'Accept': 'application/json',
-  }
-});
-
+// Enum for order statuses
 export enum OrderStatus {
   PENDING = 'PENDING',       // Preparation
   RECEIVED = 'RECEIVED',     // Waiting for receipt of SMS
@@ -20,100 +14,101 @@ export enum OrderStatus {
   BANNED = 'BANNED'          // Number banned, when number already used
 }
 
-export const getVirtualNumber = async (serviceCode: string) => {
-  try {
-    // Log the request details
-    console.log('Making request with:', {
-      url: `${API_URL}/user/buy/activation/russia/any/${serviceCode}`,
-      headers: {
-        'Authorization': `Bearer ${api.defaults.headers.common['Authorization']}`,
-        'Accept': 'application/json'
-      }
+// Axios instance with default headers and error handling
+const api: AxiosInstance = axios.create({
+  baseURL: API_URL,
+  headers: {
+    'Authorization': `Bearer ${API_KEY}`,
+    'Accept': 'application/json',
+    'Content-Type': 'application/json',
+  },
+  timeout: 10000, // 10 second timeout
+});
+
+// Response interceptor to handle non-2xx responses
+api.interceptors.response.use(
+  (response) => response,
+  (error: AxiosError) => {
+    // Centralized error handling
+    handleAxiosError(error);
+    return Promise.reject(error); // Propagate the error
+  }
+);
+
+// Centralized error handling function
+const handleAxiosError = (error: AxiosError, customMessage: string = 'API Error'): void => {
+  if (axios.isAxiosError(error)) {
+    const errorMessage = error.response?.data?.message || error.message;
+    const status = error.response?.status;
+
+    // Log detailed error information for debugging
+    console.error('Axios Error:', {
+      message: errorMessage,
+      status: status,
+      data: error.response?.data,
+      headers: error.response?.headers,
     });
 
-    // Add timeout and retry logic
-    const response = await api.get(
-      `${API_URL}/user/buy/activation/russia/any/${serviceCode}`,
-      {
-        timeout: 10000, // 10 second timeout
-        validateStatus: (status) => status >= 200 && status < 500 // Accept any status < 500
-      }
-    );
-
-    // Log the response
-    console.log('API Response:', {
-      status: response.status,
-      data: response.data
-    });
-
-    if (!response.data) {
-      throw new Error('No data received from the API');
-    }
-
-    if (response.data === 'no free phones') {
-      throw new Error('No free phones available for this service');
-    }
-
-    return response.data;
-  } catch (error: any) {
-    if (axios.isAxiosError(error)) {
-      // Log the full error for debugging
-      console.error('Axios Error:', {
-        message: error.message,
-        code: error.code,
-        response: error.response?.data,
-        status: error.response?.status,
-        headers: error.response?.headers
-      });
-
-      if (!error.response) {
-        // Network error (no response received)
-        throw new Error('Unable to connect to the service. Please check your internet connection and try again.');
-      }
-
-      if (error.code === 'ECONNABORTED') {
-        throw new Error('Request timed out. Please try again.');
-      }
-
-      if (error.response.status === 401) {
+    // Specific error handling based on status code
+    switch (status) {
+      case 400:
+        throw new Error(`Invalid request: ${errorMessage}`);
+      case 401:
         throw new Error('Authentication failed. Please check your API key.');
-      }
-
-      if (error.response.status === 400) {
-        throw new Error(error.response.data?.message || 'Invalid request parameters');
-      }
-
-      throw new Error(`Service error: ${error.response.data?.message || error.message}`);
+      case 404:
+        throw new Error('Resource not found.');
+      case 500:
+        throw new Error('Internal server error.');
+      default:
+        throw new Error(`${customMessage}: ${errorMessage}`);
     }
-
-    // Non-axios errors
+  } else {
+    // Log non-Axios errors
     console.error('Non-Axios Error:', error);
-    throw new Error('An unexpected error occurred. Please try again.');
+    throw new Error(`${customMessage}: ${error.message}`);
   }
 };
 
-export const getSmsCode = async (id: string) => {
-  try {
-    const response = await api.get(`${API_URL}/user/check/${id}`);
-    return response.data;
-  } catch (error) {
-    throw new Error('Failed to get SMS code');
-  }
-};
+// Interfaces for better type safety
+interface VirtualNumber {
+  id: string;
+  phone: string;
+  operator: string;
+  product: string;
+  price: number;
+  status: string;
+  expires: string;
+  created_at: string;
+  country: string;
+}
 
-export const getBalance = async () => {
-  try {
-    const response = await api.get(`${API_URL}/user/profile`);
-    return { balance: response.data.balance };
-  } catch (error) {
-    throw new Error('Failed to get balance');
-  }
-};
+interface SmsMessage {
+  created_at: string;
+  date: string;
+  sender: string;
+  text: string;
+  code: string;
+  is_wave?: boolean;
+  wave_uuid?: string;
+}
 
-interface ProductPrice {
-  cost: number;
-  count: number;
-  rate?: number;
+interface OrderResponse {
+  id: number;
+  created_at: string;
+  phone: string;
+  product: string;
+  price: number;
+  status: OrderStatus;
+  expires: string;
+  sms: SmsMessage[] | null;
+  forwarding: boolean;
+  forwarding_number: string;
+  country: string;
+}
+
+interface SmsInboxResponse {
+  Data: SmsMessage[];
+  Total: number;
 }
 
 interface ProductResponse {
@@ -122,10 +117,69 @@ interface ProductResponse {
   Price: number;
 }
 
-export const getProducts = async (country: string = 'russia', operator: string = 'any') => {
+interface BalanceResponse {
+  balance: number;
+}
+
+// Generic function to handle API requests
+const handleApiResponse = async <T>(url: string, method: 'get' | 'post' | 'put' | 'delete', data?: any): Promise<T> => {
   try {
-    const response = await api.get(`${API_URL}/guest/products/${country}/${operator}`);
-    
+    const response: AxiosResponse<T> = await api.request({
+      url,
+      method,
+      data,
+    });
+
+    if (!response.data) {
+      throw new Error('No data received from the API');
+    }
+
+    return response.data;
+  } catch (error: any) {
+    handleAxiosError(error, `Failed to ${method} data from ${url}`);
+    throw error;
+  }
+};
+
+// API functions
+export const getVirtualNumber = async (countryCode: string, serviceCode: string | null): Promise<VirtualNumber | undefined> => {
+  try {
+    const data = await handleApiResponse<VirtualNumber>(
+      `/user/buy/activation/${countryCode}/any/${serviceCode ? serviceCode : 'any'}`,
+      'get'
+    );
+    return data;
+  } catch (error: any) {
+    console.error('Failed to get virtual number:', error);
+    return undefined;
+  }
+};
+
+export const getSmsCode = async (id: string): Promise<OrderResponse | undefined> => {
+  try {
+    return await handleApiResponse<OrderResponse>(`/user/check/${id}`, 'get');
+  } catch (error: any) {
+    console.error('Failed to get SMS code:', error);
+    return undefined;
+  }
+};
+
+export const getBalance = async (): Promise<BalanceResponse | undefined> => {
+  try {
+    return await handleApiResponse<BalanceResponse>('/user/profile', 'get');
+  } catch (error: any) {
+    console.error('Failed to get balance:', error);
+    return undefined;
+  }
+};
+
+export const getProducts = async (
+  country: string = 'india',
+  operator: string = 'any'
+): Promise<Array<ProductResponse & { id: string; name: string }> | undefined> => {
+  try {
+    const response = await api.get(`/guest/products/${country}/${operator}`);
+
     if (!response.data) {
       throw new Error('No product data received');
     }
@@ -136,111 +190,114 @@ export const getProducts = async (country: string = 'russia', operator: string =
       name: key,
       ...value as ProductResponse
     }));
-    
+
     return products;
   } catch (error: any) {
-    if (axios.isAxiosError(error)) {
-      console.error(`Request failed for country=${country}, operator=${operator}`);
-      if (error.response?.status === 400) {
-        throw new Error(`Invalid parameters: country=${country}, operator=${operator}`);
-      }
-      throw new Error(`API Error: ${error.response?.data?.message || error.message}`);
-    }
-    throw new Error(`Failed to get products: ${error.message}`);
+    handleAxiosError(error, `Failed to get products for country=${country}, operator=${operator}`);
+    return undefined;
   }
 };
 
-export const getPrices = async (params?: { country?: string; product?: string }) => {
+export const getPrices = async (
+  params?: { country?: string; product?: string }
+): Promise<any | undefined> => {
   try {
     const queryParams = new URLSearchParams();
     if (params?.country) queryParams.append('country', params.country);
     if (params?.product) queryParams.append('product', params.product);
 
-    const url = `${API_URL}/guest/prices${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+    const url = `/guest/prices${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
     const response = await api.get(url);
-    
+
     if (!response.data) {
       throw new Error('No price data received');
     }
 
     return response.data;
   } catch (error: any) {
-    if (axios.isAxiosError(error)) {
-      if (error.response?.status === 400) {
-        throw new Error('Invalid country or product parameters');
-      }
-      throw new Error(`API Error: ${error.response?.data?.message || error.message}`);
-    }
-    throw new Error(`Failed to get prices: ${error.message}`);
+    handleAxiosError(error, 'Failed to get prices');
+    return undefined;
   }
 };
 
-export const checkSmsMessages = async (orderId: number) => {
+export const checkSmsMessages = async (orderId: number): Promise<SmsInboxResponse | undefined> => {
   try {
-    const response = await api.get(`${API_URL}/user/sms/inbox/${orderId}`);
-    return response.data;
+    return await handleApiResponse<SmsInboxResponse>(`/user/sms/inbox/${orderId}`, 'get');
   } catch (error: any) {
-    if (axios.isAxiosError(error)) {
-      throw new Error(`Failed to retrieve SMS messages: ${error.response?.data?.message || error.message}`);
-    }
-    throw new Error(`Failed to retrieve SMS messages: ${error.message}`);
+    console.error('Failed to retrieve SMS messages:', error);
+    return undefined;
   }
 };
 
-export const cancelOrder = async (orderId: number) => {
+export const cancelOrder = async (orderId: number): Promise<OrderResponse | undefined> => {
   try {
     console.log(`Cancelling order: ${orderId}`);
-    const response = await api.get(`${API_URL}/user/cancel/${orderId}`);
-    
-    if (!response.data) {
-      throw new Error('No response received from cancel request');
-    }
-    
-    console.log('Cancel response:', response.data);
-    return response.data;
+    return await handleApiResponse<OrderResponse>(`/user/cancel/${orderId}`, 'get');
   } catch (error: any) {
-    if (axios.isAxiosError(error)) {
-      if (error.response?.status === 400) {
-        const message = error.response.data?.message || 'Order cannot be cancelled';
-        console.error(`Cancel error: ${message}`);
-        throw new Error(message);
-      }
-      throw new Error(`Failed to cancel order: ${error.response?.data?.message || error.message}`);
-    }
-    throw new Error(`Failed to cancel order: ${error.message}`);
+    console.error('Failed to cancel order:', error);
+    return undefined;
   }
 };
 
-export const getNotifications = async (lang: 'ru' | 'en') => {
+export const getNotifications = async (lang: 'ru' | 'en'): Promise<string | undefined> => {
   try {
-    const response = await api.get(`${API_URL}/guest/flash/${lang}`);
-    
+    const response = await api.get(`/guest/flash/${lang}`);
+
     if (!response.data) {
       throw new Error('No notification data received');
     }
 
     return response.data.text;
   } catch (error: any) {
-    if (axios.isAxiosError(error)) {
-      throw new Error(`Failed to get notifications: ${error.response?.data?.message || error.message}`);
-    }
-    throw new Error(`Failed to get notifications: ${error.message}`);
+    handleAxiosError(error, 'Failed to get notifications');
+    return undefined;
   }
 };
 
-export const getVendorStatistics = async () => {
+export const getVendorStatistics = async (): Promise<any | undefined> => {
   try {
-    const response = await api.get(`${API_URL}/user/vendor`);
-    
+    const response = await api.get(`/user/vendor`);
+
     if (!response.data) {
       throw new Error('No vendor data received');
     }
 
     return response.data;
   } catch (error: any) {
-    if (axios.isAxiosError(error)) {
-      throw new Error(`Failed to get vendor statistics: ${error.response?.data?.message || error.message}`);
+    handleAxiosError(error, 'Failed to get vendor statistics');
+    return undefined;
+  }
+};
+
+export const finishOrder = async (orderId: number): Promise<OrderResponse | undefined> => {
+  try {
+    return await handleApiResponse<OrderResponse>(`/user/finish/${orderId}`, 'get');
+  } catch (error: any) {
+    console.error('Failed to finish order:', error);
+    return undefined;
+  }
+};
+
+export const banOrder = async (orderId: number): Promise<OrderResponse | undefined> => {
+  try {
+    return await handleApiResponse<OrderResponse>(`/user/ban/${orderId}`, 'get');
+  } catch (error: any) {
+    console.error('Failed to ban order:', error);
+    return undefined;
+  }
+};
+
+export const getCountries = async (): Promise<any | undefined> => {
+  try {
+    const response = await api.get('/guest/countries');
+
+    if (!response.data) {
+      throw new Error('No countries data received');
     }
-    throw new Error(`Failed to get vendor statistics: ${error.message}`);
+
+    return response.data;
+  } catch (error: any) {
+    handleAxiosError(error, 'Failed to get countries');
+    return undefined;
   }
 };

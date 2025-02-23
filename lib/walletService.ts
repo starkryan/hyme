@@ -9,6 +9,12 @@ const supabase = createClient<Database>(
 )
 
 export const getWallet = async (userId: string) => {
+  const { user } = useUser();
+  if (!user) {
+    toast.error('User not authenticated');
+    throw new Error('User not authenticated');
+  }
+
   try {
     let { data: wallet, error } = await supabase
       .from('wallets')
@@ -43,6 +49,12 @@ export const getWallet = async (userId: string) => {
 }
 
 export const rechargeWallet = async (userId: string, amount: number, description: string) => {
+  const { user } = useUser();
+  if (!user) {
+    toast.error('User not authenticated');
+    throw new Error('User not authenticated');
+  }
+
   try {
     const wallet = await getWallet(userId)
 
@@ -64,6 +76,12 @@ export const rechargeWallet = async (userId: string, amount: number, description
 }
 
 export const deductBalance = async (userId: string, amount: number, serviceId: string, description: string) => {
+  const { user } = useUser();
+  if (!user) {
+    toast.error('User not authenticated');
+    throw new Error('User not authenticated');
+  }
+
   try {
     const wallet = await getWallet(userId)
 

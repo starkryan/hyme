@@ -14,3 +14,5 @@ you are using sonner for the toaster
 make response more user friendly
 make the code more readable and maintainable
 im using clerk for the authentication
+
+i am creating otp service for the user to verify their phone number using 5sim api so the user can signup and login to the application then after verification the user can access the dashboard and the dashboard is protected and the user can only access the dashboard if they are signed in
