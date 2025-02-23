@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Copy, Check, AlertTriangle, XCircle, CircleCheck, Ban } from 'lucide-react';
+import { Copy, Check, AlertTriangle, XCircle, CircleCheck, Ban, ChevronsUpDown } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Spinner } from "@/components/ui/spinner"
 import {
@@ -21,14 +21,11 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
-import { ChevronsUpDown } from 'lucide-react';
 import { Progress } from "@/components/ui/progress";
-
-
-const variants = ['default', 'circle', 'pinwheel', 'circle-filled', 'ellipsis', 'ring', 'bars', 'infinite'];
-
-
-
+import { useUser } from '@clerk/nextjs';
+import { getWalletBalance, updateWalletBalance, createTransaction } from '@/lib/walletService';
+import { UPIVerification } from '../wallet/UPIVerification';
+import { WalletBalance } from '../wallet/WalletBalance';
 interface SmsMessage {
   created_at: string;
   date: string;
@@ -47,6 +44,8 @@ interface Product {
 type OrderStatus = "PENDING" | "RECEIVED" | "CANCELED" | "TIMEOUT" | "FINISHED" | "BANNED";
 
 const GetVirtualNumber = () => {
+  const { user } = useUser();
+  const [walletBalance, setWalletBalance] = useState<number>(0);
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<string | undefined>(undefined);
   const [number, setNumber] = useState<{ phone: string; id: string } | null>(null);
@@ -88,7 +87,7 @@ const GetVirtualNumber = () => {
         } else {
           setError('Failed to fetch countries: Invalid data format.');
           toast.error('Failed to fetch countries: Invalid data format.');
-        }
+        }      
       } catch (e: any) {
         console.error('Error fetching countries:', e);
         setError(e.message || 'An unexpected error occurred.');
@@ -126,6 +125,21 @@ const GetVirtualNumber = () => {
 
     fetchProducts();
   }, [countryCode]);
+
+  useEffect(() => {
+    const fetchWalletBalance = async () => {
+      if (!user) return;
+      try {
+        const balance = await getWalletBalance(user.id);
+        setWalletBalance(balance);
+      } catch (error) {
+        console.error('Error fetching wallet balance:', error);
+        toast.error('Failed to fetch wallet balance');
+      }
+    };
+
+    fetchWalletBalance();
+  }, [user]);
 
   useEffect(() => {
     if (number?.id && isCheckingSms) {
@@ -207,6 +221,11 @@ const GetVirtualNumber = () => {
   }, [isTimeoutActive, timeLeft, toast]);
 
   const handleGetNumber = async () => {
+    if (!user) {
+      toast.error('Please sign in to continue')
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
     setNumber(null);
@@ -226,37 +245,59 @@ const GetVirtualNumber = () => {
         return;
       }
 
+      // Get product price
+      const selectedProductData = products.find(p => p.id.toString() === selectedProduct);
+      if (!selectedProductData) {
+        setError('Selected product not found.');
+        toast.error('Selected product not found.');
+        return;
+      }
+
+      // Check if user has sufficient balance
+      if (walletBalance < selectedProductData.Price) {
+        setError('Insufficient wallet balance. Please recharge.');
+        toast.error('Insufficient wallet balance. Please recharge.');
+        return;
+      }
+
+      // Create a pending transaction
+      const transaction = await createTransaction(
+        user.id,
+        selectedProductData.Price,
+        'DEBIT',
+        selectedProduct
+      );
+
       console.log('Getting virtual number with:', { countryCode, selectedProduct });
       const data = await getVirtualNumber(countryCode, selectedProduct);
       console.log('Virtual number data:', data);
 
-      if (data) {
-        if (data.phone) {
-          setNumber({ phone: data.phone, id: data.id });
-          setOrderId(Number(data.id));
-          toast.success(`Number ${data.phone} received!`);
-          setIsCheckingSms(true); // Start checking for SMS
-          setOrderStatus("PENDING");
-          setOrderCreatedAt(data.created_at || null);
-        } else {
-          setError('Phone number not received from the service.');
-          toast.error('Phone number not received from the service.');
-        }
+      if (data && data.phone) {
+        // Deduct balance from wallet
+        await updateWalletBalance(user.id, selectedProductData.Price, 'DEBIT');
+        
+        // Update wallet balance state
+        setWalletBalance(prev => prev - selectedProductData.Price);
+
+        setNumber({ phone: data.phone, id: data.id });
+        setOrderId(Number(data.id));
+        toast.success(`Number ${data.phone} received!`);
+        setIsCheckingSms(true);
+        setOrderStatus("PENDING");
+        setOrderCreatedAt(data.created_at || null);
       } else {
-        setError('No free phones available for this service');
-        toast.error('No free phones available for this service');
+        setError('No free phones available for this service')
+        toast.error('No free phones available for this service')
       }
     } catch (e: any) {
       console.error('Error getting virtual number:', e);
       if (e.message === 'No free phones available for this service') {
         setError('No free phones available for the selected service. Please try again later or select a different service.');
         toast.error('No free phones available for the selected service. Please try again later or select a different service.');
-      }
-      else if (e.message.includes('Request failed with status code 400')) {
+      } else if (e.message.includes('Request failed with status code 400')) {
         setError('Invalid product selected for the chosen country. Please select a valid product.');
         toast.error('Invalid product selected for the chosen country. Please select a valid product.');
-      }
-      else {
+      } else {
         setError(e.message || 'An unexpected error occurred.');
         toast.error(e.message || 'An unexpected error occurred.');
       }
@@ -405,298 +446,309 @@ const GetVirtualNumber = () => {
   };
 
   return (
-    <Card className="p-4 md:p-6 shadow-md rounded-xl ">
-      <CardHeader className="pb-4">
-        <CardTitle className="text-xl md:text-2xl font-semibold text-center">Get Virtual Number</CardTitle>
-      </CardHeader>
-      <CardContent className="grid gap-4">
-        {/* Country Selection */}
-        <div className="grid gap-2">
-          <Label htmlFor="country" className="text-sm font-medium">Country</Label>
-          <Popover open={countryOpen} onOpenChange={setCountryOpen}>
-            <PopoverTrigger asChild>
-              <Button
-                variant="outline"
-                role="combobox"
-                aria-expanded={countryOpen}
-                className="w-full justify-between text-sm"
-                disabled={isCountryLoading}
-              >
-                {countryCode ? (
-                  <div className="flex items-center gap-2">
-                    <span>{countryCode.toUpperCase()}</span>
-                  </div>
-                ) : "Select country..."}
-                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                {isCountryLoading && <Spinner variant="circle" className="ml-2 h-4 w-4" />}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-full p-0">
-              <Command>
-                <CommandInput placeholder="Search country..." />
-                <CommandList>
-                  <CommandEmpty>No country found.</CommandEmpty>
-                  <CommandGroup>
-                    {availableCountries.length > 0 ? (
-                      availableCountries.map((country) => (
-                        <CommandItem
-                          key={country}
-                          value={country}
-                          onSelect={(currentValue) => {
-                            setCountryCode(currentValue);
-                            setCountryOpen(false);
-                          }}
-                          className="flex items-center gap-2"
-                        >
-                          <span>{country.toUpperCase()}</span>
-                        </CommandItem>
-                      ))
-                    ) : (
-                      <CommandItem disabled>No countries available</CommandItem>
-                    )}
-                  </CommandGroup>
-                </CommandList>
-              </Command>
-            </PopoverContent>
-          </Popover>
-        </div>
-
-        {/* Product Selection */}
-        <div className="grid gap-2">
-          <Label htmlFor="product" className="text-sm font-medium">Product</Label>
-          <Popover open={productOpen} onOpenChange={setProductOpen}>
-            <PopoverTrigger asChild>
-              <Button
-                variant="outline"
-                role="combobox"
-                aria-expanded={productOpen}
-                className="w-full justify-between text-sm"
-                disabled={isProductLoading}
-              >
-                {selectedProduct
-                  ? products.find((product) => product.id.toString() === selectedProduct)?.name
-                  : "Select product..."}
-                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                {isProductLoading && <Spinner variant="infinite" className="ml-2 h-4 w-4" />}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-full p-0">
-              <Command>
-                <CommandInput placeholder="Search product..." />
-                <CommandList>
-                  <CommandEmpty>No product found.</CommandEmpty>
-                  <CommandGroup>
-                    {products.length > 0 ? (
-                      products.map((product) => (
-                        <CommandItem
-                          key={product.id}
-                          value={product.id.toString()}
-                          onSelect={(currentValue) => {
-                            setSelectedProduct(currentValue);
-                            setProductOpen(false);
-                          }}
-                        >
-                          <Check
-                            className={cn(
-                              "mr-2 h-4 w-4",
-                              selectedProduct === product.id.toString() ? "opacity-100" : "opacity-0"
-                            )}
-                          />
-                          {product.name.charAt(0).toUpperCase() + product.name.slice(1)} - ${product.Price} - {product.Qty}
-                        </CommandItem>
-                      ))
-                    ) : (
-                      <CommandItem disabled>No products available</CommandItem>
-                    )}
-                  </CommandGroup>
-                </CommandList>
-              </Command>
-            </PopoverContent>
-          </Popover>
-        </div>
-
-        {/* Get Number Button */}
-        <Button
-          onClick={handleGetNumber}
-          disabled={isLoading || isOrderCancelled || !selectedProduct}
-          className="rounded-md py-2 text-sm"
-        >
-          {isLoading ? (
-            <div className="flex items-center justify-center">
-              <Spinner variant="infinite" className="mr-2 h-4 w-4" />
-            </div>
-          ) : (
-            'Get Number'
-          )}
-        </Button>
-
-        {/* Display Number Information */}
-        {number && number.phone && (
+    <div className="space-y-4">
+      <WalletBalance />
+      <Card className="p-4 md:p-6 shadow-md rounded-xl bg-card">
+        <CardHeader className="pb-4">
+          <CardTitle className="text-xl md:text-2xl font-semibold text-center">Get Virtual Number</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          {/* Country Selection */}
           <div className="grid gap-2">
-            <div className="flex items-center justify-between rounded-md border p-2 shadow-sm">
-              <div className="flex-grow flex items-center gap-2">
-                <Badge  className="text-xs">Number:</Badge>
-                <span className="text-sm font-medium">{number.phone}</span>
-              </div>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => handleCopyToClipboard(number.phone, setIsNumberCopied)}
-                disabled={isNumberCopied}
-                className="ml-2 h-8 w-8"
-              >
-                {isNumberCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-              </Button>
-            </div>
-            <div className="grid grid-cols-3 gap-1 sm:gap-2 text-xs sm:text-sm">
-              <Badge variant="outline" className="flex flex-col items-center p-1 sm:p-1.5">
-                <span className="text-[10px] sm:text-xs">Country</span>
-                <span className="font-medium">{countryCode}</span>
-              </Badge>
-              <Badge variant="outline" className="flex flex-col items-center p-1 sm:p-1.5">
-                <span className="text-[10px] sm:text-xs">Order ID</span>
-                <span className="font-medium">{number.id}</span>
-              </Badge>
-              {orderCreatedAt && (
-                <Badge variant="outline" className="flex flex-col items-center p-1 sm:p-1.5">
-                  <span className="text-[10px] sm:text-xs">Time</span>
-                  <span className="font-medium">
-                    {new Date(orderCreatedAt).toLocaleTimeString()}
-                  </span>
-                </Badge>
-              )}
-            </div>
-
-            {orderStatus && (
-              <div className="text-sm text-center mt-2">
-                <Badge className={cn(getStatusColor(orderStatus), "text-xs")}>
-                  {orderStatus}
-                </Badge>
-              </div>
-            )}
+            <Label htmlFor="country" className="text-sm font-medium">Country</Label>
+            <Popover open={countryOpen} onOpenChange={setCountryOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={countryOpen}
+                  className="w-full justify-between text-sm"
+                  disabled={isCountryLoading}
+                >
+                  {countryCode ? (
+                    <div className="flex items-center gap-2">
+                      <span>{countryCode.toUpperCase()}</span>
+                    </div>
+                  ) : "Select country..."}
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  {isCountryLoading && <Spinner variant="circle" className="ml-2 h-4 w-4" />}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[200px] p-0">
+                <Command className="rounded-md border shadow-md">
+                  <CommandInput placeholder="Search country..." className="h-9" />
+                  <CommandList>
+                    <CommandEmpty>No country found.</CommandEmpty>
+                    <CommandGroup heading="Available Countries">
+                      {availableCountries.length > 0 ? (
+                        availableCountries.map((country) => (
+                          <CommandItem
+                            key={country}
+                            value={country}
+                            onSelect={(currentValue) => {
+                              setCountryCode(currentValue);
+                              setCountryOpen(false);
+                            }}
+                            className="flex items-center gap-2 px-2 py-1.5"
+                          >
+                            <span className="flex-1">{country.toUpperCase()}</span>
+                          </CommandItem>
+                        ))
+                      ) : (
+                        <CommandItem disabled>No countries available</CommandItem>
+                      )}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
           </div>
-        )}
 
-        {/* Waiting for OTP */}
-        {isCheckingSms && !smsCode && (
-          <div className="flex flex-col items-center justify-center space-y-2">
-            <div className="flex items-center space-x-2">
-              <Spinner variant="bars" className="h-4 w-4" />
-              <span className="text-sm">Waiting for OTP...</span>
-            </div>
-            {isTimeoutActive && timeLeft !== null && otpTimeout !== null && (
-              <>
-                <Progress value={((otpTimeout - timeLeft) / otpTimeout) * 100} className="w-full" />
-                <span className="text-xs text-muted-foreground">
-                  Time left: {timeLeft} seconds
-                </span>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* Display SMS Code */}
-        {smsCode && (
+          {/* Product Selection */}
           <div className="grid gap-2">
-            <div className="flex items-center justify-between rounded-md border p-3 bg-gray-50 dark:bg-gray-800 shadow-sm">
-              <div className="flex-grow flex items-center gap-2">
-                <Badge variant="secondary" className="text-xs">SMS Code:</Badge>
-                <span className="text-sm font-medium">{smsCode}</span>
-              </div>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => handleCopyToClipboard(smsCode, setIsOtpCopied)}
-                disabled={isOtpCopied}
-                className="ml-2 h-8 w-8"
-              >
-                {isOtpCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-              </Button>
-            </div>
+            <Label htmlFor="product" className="text-sm font-medium">Product</Label>
+            <Popover open={productOpen} onOpenChange={setProductOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={productOpen}
+                  className="w-full justify-between text-sm"
+                  disabled={isProductLoading}
+                >
+                  {selectedProduct
+                    ? products.find((product) => product.id.toString() === selectedProduct)?.name
+                    : "Select product..."}
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  {isProductLoading && <Spinner variant="infinite" className="ml-2 h-4 w-4" />}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[280px] p-0">
+                <Command className="rounded-md border shadow-md">
+                  <CommandInput placeholder="Search product..." className="h-9" />
+                  <CommandList>
+                    <CommandEmpty>No product found.</CommandEmpty>
+                    <CommandGroup heading="Available Products">
+                      {products.length > 0 ? (
+                        products.map((product) => (
+                          <CommandItem
+                            key={product.id}
+                            value={product.id.toString()}
+                            onSelect={(currentValue) => {
+                              setSelectedProduct(currentValue);
+                              setProductOpen(false);
+                            }}
+                            className="flex items-center gap-2 px-2 py-1.5"
+                          >
+                            <Check
+                              className={cn(
+                                "h-4 w-4",
+                                selectedProduct === product.id.toString() ? "opacity-100" : "opacity-0"
+                              )}
+                            />
+                            <div className="flex flex-col">
+                              <span className="font-medium">
+                                {product.name.charAt(0).toUpperCase() + product.name.slice(1)}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                ${product.Price} - {product.Qty} available
+                              </span>
+                            </div>
+                          </CommandItem>
+                        ))
+                      ) : (
+                        <CommandItem disabled>No products available</CommandItem>
+                      )}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
           </div>
-        )}
 
-        {/* Display Full SMS */}
-        {fullSms && (
-          <div className="rounded-md border p-3 bg-gray-50 dark:bg-gray-800 shadow-sm">
-            <Badge variant="secondary" className="text-xs">Full SMS:</Badge>
-            <p className="mt-2 text-sm">{fullSms}</p>
-          </div>
-        )}
-
-        {/* Display Error */}
-        {error && (
-          <div className="flex items-center space-x-2">
-            <AlertTriangle className="h-4 w-4 text-red-500" />
-            <Badge variant="destructive" className="text-xs">{error}</Badge>
-          </div>
-        )}
-
-        {/* Cancel Order Button */}
-        {number && (
-          <div className="grid justify-center mt-4 gap-2">
-            {/* Ban Number Button */}
-            <Button
-              onClick={handleBanNumber}
-              disabled={isLoading || isOrderCancelled || isOrderFinished}
-              className="text-sm"
-            >
-              {isLoading ? (
-                <div className="flex items-center justify-center">
-                  <Spinner variant="infinite" className="mr-2 h-4 w-4" />
-                  <span>Banning...</span>
-                </div>
-              ) : (
-                <>
-                  Ban Number
-                  <Ban className="ml-2 h-4 w-4" />
-                </>
-              )}
-            </Button>
-
-            <Button
-              onClick={handleCancelOrder}
-              disabled={isLoading || isOrderCancelled || isOrderFinished}
-              className="text-sm"
-            >
-              {isLoading ? (
-                <div className="flex items-center justify-center">
-                  <Spinner variant="infinite" className="mr-2 h-4 w-4" />
-                  <span>Cancelling...</span>
-                </div>
-              ) : (
-                <>
-                  Cancel Order
-                  <XCircle className="ml-2 h-4 w-4" />
-                </>
-              )}
-            </Button>
-          </div>
-        )}
-
-        {/* Finish Order Button */}
-        {smsCode && (
+          {/* Get Number Button */}
           <Button
-            onClick={handleFinishOrder}
-            disabled={isLoading || isOrderCancelled || isOrderFinished || !smsCode}
-            className="text-sm"
+            onClick={handleGetNumber}
+            disabled={isLoading || isOrderCancelled || !selectedProduct}
+            className="rounded-md py-2 text-sm"
           >
             {isLoading ? (
               <div className="flex items-center justify-center">
                 <Spinner variant="infinite" className="mr-2 h-4 w-4" />
-                <span>Finishing...</span>
               </div>
             ) : (
-              <>
-                Finish Order
-                <CircleCheck className="ml-2 h-4 w-4" />
-              </>
+              'Get Number'
             )}
           </Button>
-        )}
-      </CardContent>
-    </Card>
+
+          {/* Display Number Information */}
+          {number && number.phone && (
+            <div className="grid gap-2">
+              <div className="flex items-center justify-between rounded-md border p-2 shadow-sm">
+                <div className="flex-grow flex items-center gap-2">
+                  <Badge  className="text-xs">Number:</Badge>
+                  <span className="text-sm font-medium">{number.phone}</span>
+                </div>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => handleCopyToClipboard(number.phone, setIsNumberCopied)}
+                  disabled={isNumberCopied}
+                  className="ml-2 h-8 w-8"
+                >
+                  {isNumberCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                </Button>
+              </div>
+              <div className="grid grid-cols-3 gap-1 sm:gap-2 text-xs sm:text-sm">
+                <Badge variant="outline" className="flex flex-col items-center p-1 sm:p-1.5">
+                  <span className="text-[10px] sm:text-xs">Country</span>
+                  <span className="font-medium">{countryCode}</span>
+                </Badge>
+                <Badge variant="outline" className="flex flex-col items-center p-1 sm:p-1.5">
+                  <span className="text-[10px] sm:text-xs">Order ID</span>
+                  <span className="font-medium">{number.id}</span>
+                </Badge>
+                {orderCreatedAt && (
+                  <Badge variant="outline" className="flex flex-col items-center p-1 sm:p-1.5">
+                    <span className="text-[10px] sm:text-xs">Time</span>
+                    <span className="font-medium">
+                      {new Date(orderCreatedAt).toLocaleTimeString()}
+                    </span>
+                  </Badge>
+                )}
+              </div>
+
+              {orderStatus && (
+                <div className="text-sm text-center mt-2">
+                  <Badge className={cn(getStatusColor(orderStatus), "text-xs")}>
+                    {orderStatus}
+                  </Badge>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Waiting for OTP */}
+          {isCheckingSms && !smsCode && (
+            <div className="flex flex-col items-center justify-center space-y-2">
+              <div className="flex items-center space-x-2">
+                <Spinner variant="bars" className="h-4 w-4" />
+                <span className="text-sm">Waiting for OTP...</span>
+              </div>
+              {isTimeoutActive && timeLeft !== null && otpTimeout !== null && (
+                <>
+                  <Progress value={((otpTimeout - timeLeft) / otpTimeout) * 100} className="w-full" />
+                  <span className="text-xs text-muted-foreground">
+                    Time left: {timeLeft} seconds
+                  </span>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Display SMS Code */}
+          {smsCode && (
+            <div className="grid gap-2">
+              <div className="flex items-center justify-between rounded-md border p-3 bg-gray-50 dark:bg-gray-800 shadow-sm">
+                <div className="flex-grow flex items-center gap-2">
+                  <Badge variant="secondary" className="text-xs">SMS Code:</Badge>
+                  <span className="text-sm font-medium">{smsCode}</span>
+                </div>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => handleCopyToClipboard(smsCode, setIsOtpCopied)}
+                  disabled={isOtpCopied}
+                  className="ml-2 h-8 w-8"
+                >
+                  {isOtpCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Display Full SMS */}
+          {fullSms && (
+            <div className="rounded-md border p-3 bg-gray-50 dark:bg-gray-800 shadow-sm">
+              <Badge variant="secondary" className="text-xs">Full SMS:</Badge>
+              <p className="mt-2 text-sm">{fullSms}</p>
+            </div>
+          )}
+
+          {/* Display Error */}
+          {error && (
+            <div className="flex items-center space-x-2">
+              <AlertTriangle className="h-4 w-4 text-red-500" />
+              <Badge variant="destructive" className="text-xs">{error}</Badge>
+            </div>
+          )}
+
+          {/* Cancel Order Button */}
+          {number && (
+            <div className="grid justify-center mt-4 gap-2">
+              {/* Ban Number Button */}
+              <Button
+                onClick={handleBanNumber}
+                disabled={isLoading || isOrderCancelled || isOrderFinished}
+                className="text-sm"
+              >
+                {isLoading ? (
+                  <div className="flex items-center justify-center">
+                    <Spinner variant="infinite" className="mr-2 h-4 w-4" />
+                    <span>Banning...</span>
+                  </div>
+                ) : (
+                  <>
+                    Ban Number
+                    <Ban className="ml-2 h-4 w-4" />
+                  </>
+                )}
+              </Button>
+
+              <Button
+                onClick={handleCancelOrder}
+                disabled={isLoading || isOrderCancelled || isOrderFinished}
+                className="text-sm"
+              >
+                {isLoading ? (
+                  <div className="flex items-center justify-center">
+                    <Spinner variant="infinite" className="mr-2 h-4 w-4" />
+                    <span>Cancelling...</span>
+                  </div>
+                ) : (
+                  <>
+                    Cancel Order
+                    <XCircle className="ml-2 h-4 w-4" />
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
+
+          {/* Finish Order Button */}
+          {smsCode && (
+            <Button
+              onClick={handleFinishOrder}
+              disabled={isLoading || isOrderCancelled || isOrderFinished || !smsCode}
+              className="text-sm"
+            >
+              {isLoading ? (
+                <div className="flex items-center justify-center">
+                  <Spinner variant="infinite" className="mr-2 h-4 w-4" />
+                  <span>Finishing...</span>
+                </div>
+              ) : (
+                <>
+                  Finish Order
+                  <CircleCheck className="ml-2 h-4 w-4" />
+                </>
+              )}
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 };
 
-export default GetVirtualNumber; 
+export default GetVirtualNumber;

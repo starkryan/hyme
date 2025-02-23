@@ -3,10 +3,12 @@ import React, { Suspense } from 'react'
 import { Skeleton } from "@/components/ui/skeleton"
 
 // import { Footerdemo } from './Footer'
-import { HeroGeometric } from './Shape-landing'
+// import  { Hero} from "@/components/ui/animated-hero"
+
 import { FeaturesSectionWithHoverEffects } from './Features'
 import { InfiniteSliderBasic } from './InfinitSlider'
 // import { Footerdemo } from './Footer'
+import { HeroDemo } from './Herodemo'
 
 const LoadingSkeleton = () => {
   return (
@@ -39,7 +41,8 @@ function Hero() {
     <div className="min-h-screen flex flex-col">
       <main className="flex-grow">
         <Suspense fallback={<LoadingSkeleton />}>
-          <HeroGeometric />
+          {/* <Hero /> */}
+          <HeroDemo />
           <InfiniteSliderBasic />
           <FeaturesSectionWithHoverEffects />
           
