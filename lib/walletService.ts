@@ -10,28 +10,46 @@ const supabase = createClient(
 // Helper function to handle Supabase errors
 function handleSupabaseError(error: unknown, defaultMessage: string): never {
   if (error instanceof Error) {
-    if ('code' in error) { // PostgrestError
-      const pgError = error as PostgrestError;
-      console.error('Supabase error:', {
-        code: pgError.code,
-        message: pgError.message,
-        details: pgError.details,
-        hint: pgError.hint
-      });
-      
-      // Handle specific error codes
-      if (pgError.code === '23505') { // Unique violation
-        throw new Error('This record already exists');
-      }
-      
-      throw new Error(pgError.message || defaultMessage);
-    }
-    // Regular Error object
-    console.error('Error:', error.message);
+    console.error('Error details:', {
+      message: error.message,
+      name: error.name,
+      stack: error.stack
+    });
     throw error;
   }
-  // Unknown error type
-  console.error('Unknown error type:', typeof error, error);
+
+  // Handle Supabase PostgrestError
+  if (error && typeof error === 'object' && 'code' in error) {
+    const err = error as Record<string, unknown>;
+    
+    console.error('Database error:', {
+      code: err.code,
+      message: err.message,
+      details: err.details,
+      hint: err.hint
+    });
+
+    // Handle specific error codes
+    if (err.code === '23505') {
+      throw new Error('This record already exists');
+    }
+    if (err.code === '42P01') {
+      throw new Error('Database table not found');
+    }
+    if (err.code === '42501') {
+      throw new Error('Permission denied');
+    }
+    if (err.code === '23503') {
+      throw new Error('Referenced record does not exist');
+    }
+    
+    // If it has a message, use it
+    if (typeof err.message === 'string' && err.message) {
+      throw new Error(err.message);
+    }
+  }
+
+  // If we can't determine the error type, throw the default message
   throw new Error(defaultMessage);
 }
 
@@ -49,32 +67,46 @@ export const getWalletBalance = async (userId: string): Promise<number> => {
       .eq('user_id', userId)
       .single();
 
-    if (fetchError && fetchError.code !== 'PGRST116') { // Not found error
-      handleSupabaseError(fetchError, 'Failed to fetch wallet balance');
+    if (fetchError) {
+      // PGRST116 means no rows found, which is expected for new users
+      if (fetchError.code === 'PGRST116') {
+        // If no balance exists, initialize it with upsert to handle race conditions
+        const { data: newBalance, error: insertError } = await supabase
+          .from('wallet_balances')
+          .upsert(
+            {
+              user_id: userId,
+              balance: 0,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            },
+            {
+              onConflict: 'user_id',
+              ignoreDuplicates: false
+            }
+          )
+          .select('balance')
+          .single();
+
+        if (insertError) {
+          console.error('Error initializing wallet:', insertError);
+          throw insertError;
+        }
+
+        return newBalance?.balance ?? 0;
+      }
+      
+      // For other errors, throw them
+      console.error('Error fetching wallet:', fetchError);
+      throw fetchError;
     }
 
-    // If balance exists, return it
-    if (existingBalance?.balance !== undefined) {
-      return existingBalance.balance;
-    }
-
-    // If no balance exists, initialize it
-    const { error: insertError } = await supabase
-      .from('wallet_balances')
-      .insert({
-        user_id: userId,
-        balance: 0,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      });
-
-    if (insertError) {
-      handleSupabaseError(insertError, 'Failed to initialize wallet balance');
-    }
-
-    return 0;
+    return existingBalance?.balance ?? 0;
   } catch (error) {
-    handleSupabaseError(error, 'Error in wallet balance operation');
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('Error in wallet balance operation');
   }
 };
 
@@ -84,38 +116,61 @@ export const updateWalletBalance = async (
   type: 'CREDIT' | 'DEBIT'
 ): Promise<void> => {
   try {
-    const { data: wallet, error: walletError } = await supabase
+    // First get the current balance
+    const { data: currentData, error: fetchError } = await supabase
       .from('wallet_balances')
       .select('balance')
       .eq('user_id', userId)
       .single();
 
-    if (walletError && walletError.code !== 'PGRST116') { // Not found error
-      handleSupabaseError(walletError, 'Failed to fetch wallet balance');
+    if (fetchError) {
+      return handleSupabaseError(fetchError, 'Failed to fetch current balance');
     }
 
-    const currentBalance = wallet?.balance || 0;
+    // Calculate new balance
+    const currentBalance = currentData?.balance || 0;
     const newBalance = type === 'CREDIT' 
-      ? currentBalance + amount
+      ? currentBalance + amount 
       : currentBalance - amount;
 
     if (newBalance < 0) {
       throw new Error('Insufficient balance');
     }
 
+    // Use upsert with onConflict to handle duplicate records
     const { error: updateError } = await supabase
       .from('wallet_balances')
-      .upsert({
-        user_id: userId,
-        balance: newBalance,
-        updated_at: new Date().toISOString(),
-      });
+      .upsert(
+        {
+          user_id: userId,
+          balance: newBalance,
+          updated_at: new Date().toISOString(),
+        },
+        {
+          onConflict: 'user_id',
+          ignoreDuplicates: false,
+        }
+      );
 
     if (updateError) {
-      handleSupabaseError(updateError, 'Failed to update wallet balance');
+      // Check if it's a unique constraint violation
+      if (updateError instanceof Error && 'code' in updateError && updateError.code === '23505') {
+        // Handle duplicate key violation
+        console.error('Duplicate record detected:', updateError);
+        throw new Error('Wallet record already exists. Please try again.');
+      }
+      return handleSupabaseError(updateError, 'Failed to update wallet balance');
     }
   } catch (error) {
-    handleSupabaseError(error, 'Error updating wallet balance');
+    if (error instanceof Error) {
+      if (error.message === 'Insufficient balance') {
+        throw error; // Re-throw insufficient balance error
+      }
+      if (error.message.includes('Wallet record already exists')) {
+        throw error; // Re-throw duplicate record error
+      }
+    }
+    return handleSupabaseError(error, 'Error updating wallet balance');
   }
 };
 
@@ -140,11 +195,11 @@ export const createTransaction = async (
       .single();
 
     if (error) {
-      handleSupabaseError(error, 'Failed to create transaction');
+      return handleSupabaseError(error, 'Failed to create transaction');
     }
     return data as Transaction;
   } catch (error) {
-    handleSupabaseError(error, 'Error creating transaction');
+    return handleSupabaseError(error, 'Error creating transaction');
   }
 };
 
@@ -162,10 +217,10 @@ export const updateTransactionStatus = async (
       .eq('id', transactionId);
 
     if (error) {
-      handleSupabaseError(error, 'Failed to update transaction status');
+      return handleSupabaseError(error, 'Failed to update transaction status');
     }
   } catch (error) {
-    handleSupabaseError(error, 'Error updating transaction status');
+    return handleSupabaseError(error, 'Error updating transaction status');
   }
 };
 
@@ -174,18 +229,21 @@ export const initializeWallet = async (userId: string): Promise<void> => {
   try {
     const { error } = await supabase
       .from('wallet_balances')
-      .insert({
+      .upsert({
         user_id: userId,
         balance: 0,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+      }, {
+        onConflict: 'user_id',
+        ignoreDuplicates: false
       });
 
     if (error && error.code !== '23505') { // Ignore unique violation
-      handleSupabaseError(error, 'Failed to initialize wallet');
+      return handleSupabaseError(error, 'Failed to initialize wallet');
     }
   } catch (error) {
-    handleSupabaseError(error, 'Error initializing wallet');
+    return handleSupabaseError(error, 'Error initializing wallet');
   }
 };
 
@@ -196,17 +254,19 @@ export async function createRechargeRequest(
   token: string
 ): Promise<RechargeRequest> {
   try {
+    console.log('Creating recharge request:', { userId, amount, utrNumber });
+
     // Input validation
     if (!userId) {
-      throw new Error('User ID is required')
+      throw new Error('User ID is required');
     }
 
     if (amount < 50) {
-      throw new Error('Minimum recharge amount is ₹50')
+      throw new Error('Minimum recharge amount is ₹50');
     }
 
     if (!utrNumber || utrNumber.length !== 12 || !/^\d+$/.test(utrNumber)) {
-      throw new Error('Invalid UTR number. Must be 12 digits.')
+      throw new Error('Invalid UTR number. Must be 12 digits.');
     }
 
     // Check if UTR already exists
@@ -214,42 +274,55 @@ export async function createRechargeRequest(
       .from('recharge_requests')
       .select('id')
       .eq('utr_number', utrNumber)
-      .single()
+      .single();
 
-    if (checkError && checkError.code !== 'PGRST116') { // PGRST116 means no rows returned
-      handleSupabaseError(checkError, 'Failed to verify UTR number');
+    console.log('UTR check result:', { existingRecharge, error: checkError });
+
+    if (checkError) {
+      // PGRST116 means no rows found, which is what we want
+      if (checkError.code !== 'PGRST116') {
+        console.error('Error checking UTR:', checkError);
+        return handleSupabaseError(checkError, 'Failed to verify UTR number');
+      }
     }
 
     if (existingRecharge) {
-      throw new Error('This UTR number has already been used')
+      throw new Error('This UTR number has already been used');
     }
+
+    const rechargeData = {
+      user_id: userId,
+      amount: amount,
+      payment_method: 'UPI',
+      status: 'PENDING',
+      utr_number: utrNumber,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    console.log('Inserting recharge request:', rechargeData);
 
     // Insert new recharge request
     const { data, error: rechargeError } = await supabase
       .from('recharge_requests')
-      .insert({
-        user_id: userId,
-        amount: amount,
-        payment_method: 'UPI',
-        status: 'PENDING',
-        utr_number: utrNumber,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      })
+      .insert(rechargeData)
       .select()
-      .single()
+      .single();
 
     if (rechargeError) {
-      handleSupabaseError(rechargeError, 'Failed to create recharge request');
+      console.error('Error creating recharge:', rechargeError);
+      return handleSupabaseError(rechargeError, 'Failed to create recharge request');
     }
 
     if (!data) {
-      throw new Error('Failed to create recharge request: No data returned')
+      throw new Error('Failed to create recharge request: No data returned');
     }
 
+    console.log('Recharge request created:', data);
     return data as RechargeRequest;
   } catch (error) {
-    handleSupabaseError(error, 'Error in createRechargeRequest');
+    console.error('Recharge request failed:', error);
+    return handleSupabaseError(error, 'Error in createRechargeRequest');
   }
 };
 
@@ -267,12 +340,12 @@ export async function getRechargeHistoryService(userId: string): Promise<Recharg
       .limit(10);
     
     if (error) {
-      handleSupabaseError(error, 'Failed to fetch recharge history');
+      return handleSupabaseError(error, 'Failed to fetch recharge history');
     }
     
     return data || [];
   } catch (error) {
-    handleSupabaseError(error, 'Failed to fetch recharge history');
+    return handleSupabaseError(error, 'Failed to fetch recharge history');
   }
 };
 
@@ -281,43 +354,49 @@ export async function verifyRechargeRequest(
   rechargeId: string
 ): Promise<void> {
   try {
+    // Step 1: Fetch the recharge request
     const { data: recharge, error: fetchError } = await supabase
       .from('recharge_requests')
       .select('*')
       .eq('id', rechargeId)
       .eq('user_id', userId)
+      .eq('status', 'PENDING')
       .single();
 
     if (fetchError) {
-      handleSupabaseError(fetchError, 'Failed to fetch recharge request');
+      return handleSupabaseError(fetchError, 'Failed to fetch recharge request');
     }
-    if (!recharge) throw new Error('Recharge request not found');
-    if (recharge.status !== 'PENDING') throw new Error('Recharge already processed');
+    if (!recharge) {
+      throw new Error('Recharge request not found or already processed');
+    }
 
-    // Update wallet balance
+    // Step 2: Add the recharge amount to the wallet balance using updateWalletBalance
     await updateWalletBalance(userId, recharge.amount, 'CREDIT');
 
-    // Update recharge status
+    // Step 3: Create a transaction record for the recharge
+    await createTransaction(userId, recharge.amount, 'CREDIT', rechargeId);
+
+    // Step 4: Mark the recharge request as COMPLETED
     const { error: updateError } = await supabase
       .from('recharge_requests')
       .update({
         status: 'COMPLETED',
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
       })
-      .eq('id', rechargeId);
+      .eq('id', rechargeId)
+      .eq('status', 'PENDING');
 
     if (updateError) {
-      handleSupabaseError(updateError, 'Failed to update recharge status');
+      return handleSupabaseError(updateError, 'Failed to update recharge request status');
     }
 
-    // Create a transaction record
-    await createTransaction(userId, recharge.amount, 'CREDIT', rechargeId);
+    console.log('Recharge request completed successfully:', rechargeId);
   } catch (error) {
-    handleSupabaseError(error, 'Error verifying recharge request');
+    return handleSupabaseError(error, 'Error verifying recharge request');
   }
-};
+}
 
-export const getTransactions = async (userId: string) => {
+export const getTransactions = async (userId: string): Promise<Transaction[]> => {
   try {
     const { data, error } = await supabase
       .from('transactions')
@@ -326,10 +405,10 @@ export const getTransactions = async (userId: string) => {
       .order('created_at', { ascending: false });
 
     if (error) {
-      handleSupabaseError(error, 'Failed to fetch transactions');
+      return handleSupabaseError(error, 'Failed to fetch transactions');
     }
     return data;
   } catch (error) {
-    handleSupabaseError(error, 'Error fetching transactions');
+    return handleSupabaseError(error, 'Error fetching transactions');
   }
 };

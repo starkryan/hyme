@@ -24,7 +24,7 @@ import { cn } from "@/lib/utils"
 import { Progress } from "@/components/ui/progress";
 import { useUser } from '@clerk/nextjs';
 import { getWalletBalance, updateWalletBalance, createTransaction } from '@/lib/walletService';
-import { UPIVerification } from '../wallet/UPIVerification';
+
 import { WalletBalance } from '../wallet/WalletBalance';
 interface SmsMessage {
   created_at: string;
@@ -42,6 +42,8 @@ interface Product {
 }
 
 type OrderStatus = "PENDING" | "RECEIVED" | "CANCELED" | "TIMEOUT" | "FINISHED" | "BANNED";
+
+const RUB_TO_INR_RATE = 0.89; // Current approximate rate for RUB to INR conversion
 
 const GetVirtualNumber = () => {
   const { user } = useUser();
@@ -72,6 +74,10 @@ const GetVirtualNumber = () => {
   const [otpTimeout, setOtpTimeout] = useState<number | null>(null);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [isTimeoutActive, setIsTimeoutActive] = useState(false);
+
+  const convertToINR = (rubPrice: number): number => {
+    return Math.ceil(rubPrice * RUB_TO_INR_RATE);
+  };
 
   useEffect(() => {
     const fetchAvailableCountries = async () => {
@@ -253,17 +259,23 @@ const GetVirtualNumber = () => {
         return;
       }
 
+      // Convert RUB price to INR
+      const priceInINR = convertToINR(selectedProductData.Price);
+
       // Check if user has sufficient balance
-      if (walletBalance < selectedProductData.Price) {
-        setError('Insufficient wallet balance. Please recharge.');
-        toast.error('Insufficient wallet balance. Please recharge.');
+      if (walletBalance < priceInINR) {
+        const shortfall = priceInINR - walletBalance;
+        setError(`Insufficient wallet balance. Please add ₹${shortfall} to proceed.`);
+        toast.error(`Insufficient balance. Need ₹${shortfall} more.`, {
+          description: "Please recharge your wallet to continue."
+        });
         return;
       }
 
-      // Create a pending transaction
+      // Create a pending transaction with INR amount
       const transaction = await createTransaction(
         user.id,
-        selectedProductData.Price,
+        priceInINR,
         'DEBIT',
         selectedProduct
       );
@@ -273,11 +285,11 @@ const GetVirtualNumber = () => {
       console.log('Virtual number data:', data);
 
       if (data && data.phone) {
-        // Deduct balance from wallet
-        await updateWalletBalance(user.id, selectedProductData.Price, 'DEBIT');
+        // Deduct balance from wallet (in INR)
+        await updateWalletBalance(user.id, priceInINR, 'DEBIT');
         
         // Update wallet balance state
-        setWalletBalance(prev => prev - selectedProductData.Price);
+        setWalletBalance(prev => prev - priceInINR);
 
         setNumber({ phone: data.phone, id: data.id });
         setOrderId(Number(data.id));
@@ -551,7 +563,7 @@ const GetVirtualNumber = () => {
                                 {product.name.charAt(0).toUpperCase() + product.name.slice(1)}
                               </span>
                               <span className="text-xs text-muted-foreground">
-                                ${product.Price} - {product.Qty} available
+                                ₹{convertToINR(product.Price)} ({product.Price} RUB) - {product.Qty} available
                               </span>
                             </div>
                           </CommandItem>

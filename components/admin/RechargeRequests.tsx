@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input }   from '@/components/ui/input';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
+import { verifyRechargeRequest } from '@/lib/walletService';
 
 // Initialize Supabase client
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -17,13 +18,13 @@ interface RechargeRequest {
   id: string;
   user_id: string;
   amount: number;
-  status: 'pending' | 'approved' | 'rejected';
+  status: 'PENDING' | 'COMPLETED' | 'FAILED';
   utr_number: string;
   created_at: string;
 }
 
 export function RechargeRequests() {
-  const { user } = useUser();
+  const { user, isLoaded } = useUser();
   
   const [amount, setAmount] = useState('');
   const [utrNumber, setUtrNumber] = useState('');
@@ -53,24 +54,15 @@ export function RechargeRequests() {
 
   useEffect(() => {
     const checkAdmin = async () => {
-      if (!user) return;
-
-      const { data, error } = await supabase
-        .from('users')
-        .select('is_admin')
-        .eq('id', user.id)
-        .single();
-
-      if (error) {
-        console.error('Error checking admin:', error);
-        return;
-      }
-
-      setIsAdmin(data?.is_admin || false);
+      if (!isLoaded || !user) return;
+      
+      // Check if user has admin role in Clerk metadata
+      const role = user.publicMetadata?.role;
+      setIsAdmin(role === 'admin');
     };
 
     checkAdmin();
-  }, [user]);
+  }, [user, isLoaded]);
 
   // Submit recharge request
   const handleSubmit = async (e: React.FormEvent) => {
@@ -86,7 +78,7 @@ export function RechargeRequests() {
             user_id: user.id,
             amount: parseFloat(amount),
             utr_number: utrNumber,
-            status: 'pending'
+            status: 'PENDING'
           }
         ]);
 
@@ -97,7 +89,7 @@ export function RechargeRequests() {
       // Reset form
       setAmount('');
       setUtrNumber('');
-      setRequests((prevRequests) => [...prevRequests, { id: '', user_id: user.id, amount: parseFloat(amount), status: 'pending', utr_number: utrNumber, created_at: new Date().toISOString() }]);
+      setRequests((prevRequests) => [...prevRequests, { id: '', user_id: user.id, amount: parseFloat(amount), status: 'PENDING', utr_number: utrNumber, created_at: new Date().toISOString() }]);
     } catch (error) {
       console.error('Error submitting request:', error);
       toast.error('Failed to submit recharge request');
@@ -108,18 +100,32 @@ export function RechargeRequests() {
 
   // Approve recharge request
   const handleApprove = async (requestId: string) => {
+    if (!isAdmin) {
+      toast.error('Only admins can approve requests');
+      return;
+    }
+
     setLoading(true);
     try {
-      const { error } = await supabase
-        .from('recharge_requests')
-        .update({ status: 'approved' })
-        .eq('id', requestId);
+      // Get the request details first
+      const request = requests.find(r => r.id === requestId);
+      if (!request) {
+        throw new Error('Request not found');
+      }
 
-      if (error) throw error;
+      // Call verifyRechargeRequest to update wallet balance
+      await verifyRechargeRequest(request.user_id, requestId);
 
-      toast.success('Recharge request approved!');
+      // Update local state
+      setRequests((prevRequests) => 
+        prevRequests.map((request) => 
+          request.id === requestId 
+            ? { ...request, status: 'COMPLETED' } 
+            : request
+        )
+      );
 
-      setRequests((prevRequests) => prevRequests.map((request) => request.id === requestId ? { ...request, status: 'approved' } : request));
+      toast.success('Recharge request approved and wallet updated!');
     } catch (error) {
       console.error('Error approving request:', error);
       toast.error('Failed to approve request');
@@ -130,18 +136,28 @@ export function RechargeRequests() {
 
   // Reject recharge request
   const handleReject = async (requestId: string) => {
+    if (!isAdmin) {
+      toast.error('Only admins can reject requests');
+      return;
+    }
+
     setLoading(true);
     try {
       const { error } = await supabase
         .from('recharge_requests')
-        .update({ status: 'rejected' })
+        .update({ 
+          status: 'FAILED',
+          updated_at: new Date().toISOString()
+        })
         .eq('id', requestId);
 
       if (error) throw error;
 
-      toast.success('Recharge request rejected');
+      setRequests((prevRequests) => prevRequests.map((request) => 
+        request.id === requestId ? { ...request, status: 'FAILED' } : request
+      ));
 
-      setRequests((prevRequests) => prevRequests.map((request) => request.id === requestId ? { ...request, status: 'rejected' } : request));
+      toast.success('Recharge request rejected');
     } catch (error) {
       console.error('Error rejecting request:', error);
       toast.error('Failed to reject request');
@@ -149,6 +165,10 @@ export function RechargeRequests() {
       setLoading(false);
     }
   };
+
+  if (!isLoaded) {
+    return <div>Loading...</div>;
+  }
 
   return (
     <div className="space-y-8">
@@ -208,9 +228,11 @@ export function RechargeRequests() {
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Status
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Actions
-              </th>
+              {isAdmin && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
+              )}
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
@@ -224,9 +246,9 @@ export function RechargeRequests() {
                 <td className="px-6 py-4 whitespace-nowrap">
                   <span
                     className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      request.status === 'approved'
+                      request.status === 'COMPLETED'
                         ? 'bg-green-100 text-green-800'
-                        : request.status === 'rejected'
+                        : request.status === 'FAILED'
                         ? 'bg-red-100 text-red-800'
                         : 'bg-yellow-100 text-yellow-800'
                     }`}
@@ -234,29 +256,31 @@ export function RechargeRequests() {
                     {request.status}
                   </span>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                  {isAdmin && request.status === 'pending' && (
-                    <div className="space-x-2">
-                      <Button
-                        onClick={() => handleApprove(request.id)}
-                        disabled={loading}
-                        variant="outline"
-                        size="sm"
-                      >
-                        Approve
-                      </Button>
-                      <Button
-                        onClick={() => handleReject(request.id)}
-                        disabled={loading}
-                        variant="outline"
-                        size="sm"
-                        className="text-red-600 hover:text-red-700"
-                      >
-                        Reject
-                      </Button>
-                    </div>
-                  )}
-                </td>
+                {isAdmin && (
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                    {request.status === 'PENDING' && (
+                      <div className="space-x-2">
+                        <Button
+                          onClick={() => handleApprove(request.id)}
+                          disabled={loading}
+                          variant="outline"
+                          size="sm"
+                        >
+                          Approve
+                        </Button>
+                        <Button
+                          onClick={() => handleReject(request.id)}
+                          disabled={loading}
+                          variant="outline"
+                          size="sm"
+                          className="text-red-600 hover:text-red-700"
+                        >
+                          Reject
+                        </Button>
+                      </div>
+                    )}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

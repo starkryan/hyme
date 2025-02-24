@@ -19,6 +19,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { cn } from '@/lib/utils'
 import { getWalletBalance, createRechargeRequest } from '@/lib/walletService'
 import { RechargeHistory } from './RechargeHistory'
+import { auth } from '@clerk/nextjs/server'
 
 interface WalletBalanceProps {
   className?: string
@@ -176,6 +177,7 @@ export function WalletBalance({ className }: WalletBalanceProps) {
             <CardTitle className="text-sm font-medium text-muted-foreground">
               Wallet Balance
             </CardTitle>
+            <p>Hello {user?.firstName}</p>
             <div className="flex items-center gap-1">
               <IndianRupee className="h-4 w-4" />
               {isLoadingBalance ? (
