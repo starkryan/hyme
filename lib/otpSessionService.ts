@@ -30,7 +30,18 @@ export async function createOtpSession(
   transactionId: string
 ): Promise<OtpSession> {
   try {
-    const expiresAt = new Date(Date.now() + 20 * 60 * 1000); // 20 minutes from now
+    // Validate inputs
+    if (!userId || !orderId || !phoneNumber || !service || !transactionId) {
+      throw new Error('Missing required fields for OTP session');
+    }
+
+    // Check for existing active session
+    const existingSession = await getActiveOtpSession(userId);
+    if (existingSession) {
+      await deleteOtpSession(existingSession.id);
+    }
+
+    const expiresAt = new Date(Date.now() + 20 * 60 * 1000);
 
     const { data, error } = await supabase
       .from('otp_sessions')
@@ -108,5 +119,18 @@ export async function deleteOtpSession(sessionId: string): Promise<void> {
   } catch (error) {
     console.error('Error deleting OTP session:', error);
     throw error;
+  }
+}
+
+export async function cleanupExpiredSessions(): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('otp_sessions')
+      .delete()
+      .lt('expires_at', new Date().toISOString());
+
+    if (error) throw error;
+  } catch (error) {
+    console.error('Error cleaning up expired sessions:', error);
   }
 } 

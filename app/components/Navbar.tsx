@@ -3,8 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
-import { Menu, Home, Settings, User, LogOut, Wallet } from "lucide-react"
-import { useRouter } from 'next/navigation'
+import { Menu, Home, Wallet } from "lucide-react"
 import { UserButton, useAuth, useUser } from "@clerk/nextjs"
 import Link from 'next/link'
 import { cn } from "@/lib/utils"
@@ -14,6 +13,11 @@ import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatDistanceToNow } from "date-fns"
 import { getWalletBalance, getTransactionHistory } from "@/lib/walletService"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { toast } from "sonner"
+import { supabase } from "@/lib/supabase"
+import { Loader2 } from "lucide-react"
 
 interface Transaction {
   id: string;
@@ -37,6 +41,16 @@ const routes = [
     icon: Home,
     href: '/dashboard',
   },
+  {
+    label: 'Transactions',
+    icon: Wallet,
+    href: '/transactions',
+  },
+  {
+    label: 'Recharge',
+    icon: Wallet,
+    href: '/recharge',
+  },
 ]
 
 export default function Navbar() {
@@ -45,7 +59,6 @@ export default function Navbar() {
   const { isSignedIn } = useAuth()
   const { user } = useUser()
   const [walletBalance, setWalletBalance] = useState<number>(0)
-  const [transactions, setTransactions] = useState<Transaction[]>([])
   const [isLoading, setIsLoading] = useState(false)
 
   useEffect(() => {
@@ -53,12 +66,8 @@ export default function Navbar() {
       if (!user) return;
       setIsLoading(true);
       try {
-        const [balance, history] = await Promise.all([
-          getWalletBalance(user.id),
-          getTransactionHistory(user.id)
-        ]);
+        const balance = await getWalletBalance(user.id);
         setWalletBalance(balance);
-        setTransactions(history);
       } catch (error) {
         console.error('Error fetching data:', error);
       } finally {
@@ -84,10 +93,17 @@ export default function Navbar() {
     </div>
   )
 
-  const WalletSheet = () => (
-    <Sheet open={walletSheetOpen} onOpenChange={setWalletSheetOpen}>
-      <SheetTrigger asChild>
-        <Button variant="outline" size="icon" className="relative">
+  const WalletSheet = () => {
+    const [dialogOpen, setDialogOpen] = useState(false);
+
+    return (
+      <>
+        <Button 
+          variant="outline" 
+          size="icon" 
+          className="relative"
+          onClick={() => setDialogOpen(true)}
+        >
           <Wallet className="h-4 w-4" />
           <Badge 
             variant="secondary" 
@@ -96,68 +112,33 @@ export default function Navbar() {
             ₹{walletBalance}
           </Badge>
         </Button>
-      </SheetTrigger>
-      <SheetContent>
-        <SheetHeader>
-          <SheetTitle>Wallet Balance</SheetTitle>
-          <SheetDescription>
-            Your current balance is ₹{walletBalance}
-          </SheetDescription>
-        </SheetHeader>
-        <div className="flex items-center justify-between py-4">
-          <Link href="/wallet">
-            <Button className="w-full">
-              <Wallet className="mr-2 h-4 w-4" />
-              Recharge Wallet
-            </Button>
-          </Link>
-        </div>
-        <Separator className="my-4" />
-        <ScrollArea className="h-[calc(100vh-12rem)] pr-4">
-          <div className="space-y-4">
-            {isLoading ? (
-              Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="flex items-center justify-between p-4 rounded-lg border">
-                  <div className="space-y-2">
-                    <Skeleton className="h-4 w-[200px]" />
-                    <Skeleton className="h-3 w-[100px]" />
-                  </div>
-                  <Skeleton className="h-6 w-[80px]" />
-                </div>
-              ))
-            ) : transactions.length === 0 ? (
-              <div className="text-center text-muted-foreground py-8">
-                No transactions yet
+
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Wallet Balance</DialogTitle>
+              <DialogDescription>
+                Your current balance is ₹{walletBalance}
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="flex flex-col gap-4 mt-4">
+              <div className="p-4 border rounded-lg">
+                <div className="text-2xl font-bold">₹{walletBalance}</div>
+                <div className="text-sm text-muted-foreground">Available Balance</div>
               </div>
-            ) : (
-              transactions.map((transaction) => (
-                <div
-                  key={transaction.id}
-                  className="flex items-center justify-between p-4 rounded-lg border"
-                >
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium">
-                      {transaction.reference_id}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {transaction.created_at ? formatDistanceToNow(new Date(transaction.created_at), {
-                        addSuffix: true,
-                      }) : 'Date not available'}
-                    </p>
-                  </div>
-                  <Badge
-                    variant={transaction.type === 'CREDIT' ? 'default' : 'destructive'}
-                  >
-                    {transaction.type === 'CREDIT' ? '+' : '-'}₹{transaction.amount}
-                  </Badge>
-                </div>
-              ))
-            )}
-          </div>
-        </ScrollArea>
-      </SheetContent>
-    </Sheet>
-  )
+              
+              <Link href="/recharge" onClick={() => setDialogOpen(false)}>
+                <Button className="w-full" size="lg">
+                  Recharge Wallet
+                </Button>
+              </Link>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  };
 
   return (
     <header className="sticky top-0 w-full z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">

@@ -40,6 +40,7 @@ import { Separator } from "@/components/ui/separator"
 import * as React from "react"
 import { useOtpPersist } from "@/hooks/useOtpPersist"
 import { createOtpSession, updateOtpSession, getActiveOtpSession, deleteOtpSession } from "@/lib/otpSessionService"
+import type { Command as CommandPrimitive } from "cmdk"
 
 interface SmsMessage {
   created_at: string
@@ -282,22 +283,29 @@ const GetVirtualNumber = () => {
 
   useEffect(() => {
     let intervalId: NodeJS.Timeout;
+    let isSubscribed = true;
+
+    const fetchBalance = async () => {
+      if (!user) return;
+      try {
+        const balance = await getWalletBalance(user.id);
+        if (isSubscribed) {
+          setWalletBalance(balance);
+        }
+      } catch (error) {
+        console.error("Error fetching wallet balance:", error);
+        // Don't show error toast for background updates
+      }
+    };
 
     if (user) {
-      // Initial fetch
-      getWalletBalance(user.id).then(setWalletBalance);
-
-      // Refresh every 30 seconds while component is mounted
-      intervalId = setInterval(async () => {
-        const balance = await getWalletBalance(user.id);
-        setWalletBalance(balance);
-      }, 30000);
+      fetchBalance();
+      intervalId = setInterval(fetchBalance, 30000);
     }
 
     return () => {
-      if (intervalId) {
-        clearInterval(intervalId);
-      }
+      isSubscribed = false;
+      if (intervalId) clearInterval(intervalId);
     };
   }, [user]);
 
@@ -994,22 +1002,22 @@ const GetVirtualNumber = () => {
     setFilteredCountries(countries)
   }, [countries])
 
-  const getStatusColor = (status: OrderStatus | null): string => {
+  const getStatusColor = (status: OrderStatus | null): "default" | "secondary" | "destructive" | "outline" => {
     switch (status) {
       case "PENDING":
-        return "bg-yellow-100 text-yellow-800"
+        return "secondary"
       case "RECEIVED":
-        return "bg-blue-100 text-blue-800"
+        return "default" 
       case "CANCELED":
-        return "bg-gray-100 text-gray-800"
+        return "outline"
       case "TIMEOUT":
-        return "bg-orange-100 text-orange-800"
+        return "destructive"
       case "FINISHED":
-        return "bg-green-100 text-green-800"
+        return "secondary"
       case "BANNED":
-        return "bg-red-100 text-red-800"
+        return "destructive"
       default:
-        return "bg-gray-50 text-gray-500"
+        return "outline"
     }
   }
 

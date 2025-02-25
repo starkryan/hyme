@@ -10,40 +10,38 @@ interface OtpData {
 }
 
 export function useOtpPersist(key: string) {
-  // Initialize state from localStorage if available
   const [otpData, setOtpData] = useState<OtpData>(() => {
-    if (typeof window === 'undefined') return {
-      smsCode: null,
-      fullSms: null,
-      orderId: null,
-      phoneNumber: null,
-      orderStatus: null,
-      createdAt: null
-    };
-
-    const saved = localStorage.getItem(key);
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch {
-        return {
-          smsCode: null,
-          fullSms: null,
-          orderId: null,
-          phoneNumber: null,
-          orderStatus: null,
-          createdAt: null
-        };
-      }
+    if (typeof window === 'undefined') {
+      return getInitialState();
     }
-    return {
-      smsCode: null,
-      fullSms: null,
-      orderId: null,
-      phoneNumber: null,
-      orderStatus: null,
-      createdAt: null
-    };
+
+    try {
+      const saved = localStorage.getItem(key);
+      if (!saved) return getInitialState();
+
+      const parsed = JSON.parse(saved);
+      
+      // Validate stored data
+      if (!isValidOtpData(parsed)) {
+        localStorage.removeItem(key);
+        return getInitialState();
+      }
+
+      // Check if data is expired
+      if (parsed.createdAt) {
+        const expiryTime = new Date(parsed.createdAt).getTime() + 20 * 60 * 1000;
+        if (Date.now() > expiryTime) {
+          localStorage.removeItem(key);
+          return getInitialState();
+        }
+      }
+
+      return parsed;
+    } catch (error) {
+      console.error('Error reading OTP data from localStorage:', error);
+      localStorage.removeItem(key);
+      return getInitialState();
+    }
   });
 
   // Update localStorage when state changes
@@ -74,7 +72,14 @@ export function useOtpPersist(key: string) {
   }, [otpData.createdAt]);
 
   const updateOtpData = (data: Partial<OtpData>) => {
-    setOtpData(prev => ({ ...prev, ...data }));
+    setOtpData(prev => {
+      const updated = { ...prev, ...data };
+      if (!isValidOtpData(updated)) {
+        console.error('Invalid OTP data update:', data);
+        return prev;
+      }
+      return updated;
+    });
   };
 
   const clearOtpData = () => {
@@ -94,4 +99,29 @@ export function useOtpPersist(key: string) {
     updateOtpData,
     clearOtpData
   };
+}
+
+// Helper functions
+function getInitialState(): OtpData {
+  return {
+    smsCode: null,
+    fullSms: null,
+    orderId: null,
+    phoneNumber: null,
+    orderStatus: null,
+    createdAt: null
+  };
+}
+
+function isValidOtpData(data: any): data is OtpData {
+  return (
+    data &&
+    typeof data === 'object' &&
+    (data.smsCode === null || typeof data.smsCode === 'string') &&
+    (data.fullSms === null || typeof data.fullSms === 'string') &&
+    (data.orderId === null || typeof data.orderId === 'string') &&
+    (data.phoneNumber === null || typeof data.phoneNumber === 'string') &&
+    (data.orderStatus === null || typeof data.orderStatus === 'string') &&
+    (data.createdAt === null || typeof data.createdAt === 'string')
+  );
 } 
