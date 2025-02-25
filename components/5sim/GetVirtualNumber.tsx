@@ -42,6 +42,15 @@ import { useOtpPersist } from "@/hooks/useOtpPersist"
 import { createOtpSession, updateOtpSession, getActiveOtpSession, deleteOtpSession } from "@/lib/otpSessionService"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useQuery } from '@tanstack/react-query'
+import { Command as CommandPrimitive } from "cmdk"
+import type { 
+  CommandProps, 
+  CommandInputProps, 
+  CommandListProps,
+  CommandEmptyProps,
+  CommandGroupProps,
+  CommandItemProps 
+} from "cmdk"
 
 
 interface Product {
@@ -1029,6 +1038,14 @@ const GetVirtualNumber = () => {
     </Card>
   )
 
+  // Add these props objects
+  const commandProps: CommandProps = {}
+  const commandInputProps: CommandInputProps = {}
+  const commandListProps: CommandListProps = {}
+  const commandEmptyProps: CommandEmptyProps = {}
+  const commandGroupProps: CommandGroupProps = {}
+  const commandItemProps: CommandItemProps = {}
+
   return (
     <Card className="w-full max-w-4xl mx-auto">
       <CardHeader className="sticky top-0 bg-background z-10 border-b">
@@ -1131,18 +1148,20 @@ const GetVirtualNumber = () => {
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-                  <Command className="w-full">
+                  <Command {...commandProps} className="w-full">
                     <CommandInput
+                      {...commandInputProps}
                       placeholder="Search countries..."
                       value={countrySearchQuery}
                       onValueChange={setCountrySearchQuery}
                     />
-                    <CommandList>
-                      <CommandEmpty>No countries found</CommandEmpty>
-                      <CommandGroup className="max-h-[300px] overflow-auto">
+                    <CommandList {...commandListProps}>
+                      <CommandEmpty {...commandEmptyProps}>No countries found</CommandEmpty>
+                      <CommandGroup {...commandGroupProps} className="max-h-[300px] overflow-auto">
                         {Array.isArray(filteredCountries) &&
                           filteredCountries.map((country) => (
                             <CommandItem
+                              {...commandItemProps}
                               key={country.code}
                               value={country.code}
                               onSelect={() => {
