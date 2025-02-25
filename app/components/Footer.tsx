@@ -13,31 +13,29 @@ import {
 import { Facebook, Instagram, Linkedin, Moon, Send, Sun, Twitter } from "lucide-react"
 
 function Footerdemo() {
-  const [isDarkMode, setIsDarkMode] = React.useState(false); // Initialize with false
+  const [isDarkMode, setIsDarkMode] = React.useState(false);
 
   React.useEffect(() => {
-    // Check for saved user preference in localStorage after component mounts
     const savedMode = localStorage.getItem('darkMode');
     if (savedMode === 'true') {
-      setIsDarkMode(true); // Set dark mode if saved
+      setIsDarkMode(true);
     }
   }, []);
 
   React.useEffect(() => {
-    // Update the document class based on the isDarkMode state
     if (isDarkMode) {
       document.documentElement.classList.add("dark");
-      localStorage.setItem('darkMode', 'true'); // Save user preference
+      localStorage.setItem('darkMode', 'true');
     } else {
       document.documentElement.classList.remove("dark");
-      localStorage.setItem('darkMode', 'false'); // Save user preference
+      localStorage.setItem('darkMode', 'false');
     }
   }, [isDarkMode]);
 
   return (
-    <footer className="relative border-t bg-background text-foreground transition-colors duration-300">
-      <div className="container mx-auto px-4 py-12 md:px-6 lg:px-8">
-        <div className="grid gap-12 md:grid-cols-2 lg:grid-cols-2">
+    <footer className="w-full border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="container mx-auto px-4 py-8 w-full max-w-7xl">
+        <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-2">
           <div>
             <h3 className="mb-4 text-lg font-semibold">Quick Links</h3>
             <nav className="space-y-2 text-sm">
@@ -102,7 +100,7 @@ function Footerdemo() {
             </div>
           </div>
         </div>
-        <div className="mt-12 flex flex-col items-center justify-between gap-4 border-t pt-8 text-center md:flex-row">
+        <div className="mt-8 flex flex-col items-center justify-between gap-4 border-t pt-8 text-center md:flex-row">
           <p className="text-sm text-muted-foreground">
             © 2024 OTPMaya. All rights reserved.
           </p>

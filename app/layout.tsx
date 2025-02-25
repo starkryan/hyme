@@ -7,6 +7,7 @@ import './globals.css'
 import { Toaster } from 'sonner'  
 import Navbar from "@/app/components/Navbar";
 import { Footerdemo } from "@/app/components/Footer";
+
 const geistSans = Geist({
   variable: '--font-geist-sans',
   subsets: ['latin'],
@@ -29,12 +30,16 @@ export default function RootLayout({
 }>) {
   return (
     <ClerkProvider>
-      <html lang="en">
-        <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-          <Toaster />
-          <div className="min-h-screen flex flex-col">
+      <html lang="en" className="h-full">
+        <body className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-background`}>
+          <div className="relative flex min-h-screen flex-col">
+            <Toaster />
             <Navbar />
-            <main className="flex-1 ">{children}</main>
+            <main className="flex-1">
+              <div className="container mx-auto px-4 py-8 w-full max-w-7xl">
+                {children}
+              </div>
+            </main>
             <Footerdemo />
           </div>
         </body>

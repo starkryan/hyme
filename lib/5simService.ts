@@ -14,32 +14,26 @@ export enum OrderStatus {
   BANNED = 'BANNED'          // Number banned, when number already used
 }
 
-// Country code mapping for common variations
-const COUNTRY_MAPPING: { [key: string]: string } = {
-  'uk': 'england',
-  'united kingdom': 'england',
-  'great britain': 'england',
-  'united states': 'usa',
-  'united states of america': 'usa',
-  'korea': 'southkorea',
-  'south korea': 'southkorea',
-  'bosnia': 'bih',
-  'bosnia and herzegovina': 'bih',
-  'dominican republic': 'dominicana',
-  'czech republic': 'czech',
-  'macedonia': 'northmacedonia',
-  'india': 'india',
-  'bharat': 'india',
-  'hindustan': 'india'
-};
+export interface Product {
+  service: string;
+  category: string;
+  quantity: number;
+  price: number;
+  name: string;
+  id: string;
+}
 
-// Supported country codes by the API
-const SUPPORTED_COUNTRIES = [
-  'russia', 'ukraine', 'kazakhstan', 'china', 'philippines', 'myanmar', 'indonesia', 
-  'malaysia', 'kenya', 'tanzania', 'vietnam', 'kyrgyzstan', 'usa', 'poland', 'england', 
-  'india', 'romania', 'colombia', 'estonia', 'azerbaijan', 'canada', 'cambodia', 
-  'laos', 'mexico', 'nigeria', 'pakistan', 'georgia', 'brazil'
-];
+export interface VirtualNumberOrder {
+  id: string;
+  phone: string;
+  operator: string;
+  product: string;
+  price: number;
+  status: string;
+  expires: string;
+  sms: any[];
+  country: string;
+}
 
 // Base configuration for API requests
 const API_CONFIG = {
@@ -65,15 +59,20 @@ const api: AxiosInstance = axios.create({
 // Response interceptor to handle non-2xx responses
 api.interceptors.response.use(
   (response) => response,
-  (error: AxiosError) => {
-    // Centralized error handling
+  (error: AxiosError<ApiErrorResponse>) => {
     handleAxiosError(error);
-    return Promise.reject(error); // Propagate the error
+    return Promise.reject(error);
   }
 );
 
-// Centralized error handling function
-const handleAxiosError = (error: AxiosError, customMessage: string = 'API Error'): void => {
+// Add custom error interface
+interface ApiErrorResponse {
+  message?: string;
+  [key: string]: any;
+}
+
+// Update error handling function
+const handleAxiosError = (error: AxiosError<ApiErrorResponse>, customMessage: string = 'API Error'): void => {
   if (axios.isAxiosError(error)) {
     const errorMessage = error.response?.data?.message || error.message;
     const status = error.response?.status;
@@ -100,9 +99,8 @@ const handleAxiosError = (error: AxiosError, customMessage: string = 'API Error'
         throw new Error(`${customMessage}: ${errorMessage}`);
     }
   } else {
-    // Log non-Axios errors
     console.error('Non-Axios Error:', error);
-    throw new Error(`${customMessage}: ${error.message}`);
+    throw new Error(`${customMessage}: ${(error as Error).message}`);
   }
 };
 
@@ -213,21 +211,26 @@ interface ServiceProduct {
   operator: string; // e.g., "airtel", "vodafone"
 }
 
-interface Operator {
+interface OperatorResponse {
   id: string;
   name: string;
   displayName: string;
+  cost: number;
+  count: number;
+  rate: number;
 }
 
-interface PriceResponse {
-  [country: string]: {
-    [operator: string]: {
-      [service: string]: {
-        cost: number;
-        count: number;
-      };
-    };
-  };
+interface ServiceData {
+  cost: number;
+  count: number;
+}
+
+interface OperatorServices {
+  [service: string]: ServiceData;
+}
+
+interface PricesResponse {
+  [operator: string]: OperatorServices;
 }
 
 interface BalanceResponse {
@@ -243,50 +246,93 @@ interface CountryInfo {
 }
 
 interface CountriesResponse {
-  [key: string]: CountryInfo;
+  countries: {
+    [key: string]: CountryInfo;
+  };
+  error: string | null;
+}
+
+// Add better error handling for OTP verification
+interface OtpVerificationResult {
+  success: boolean;
+  message: string;
+  phone?: string;
+  orderId?: string;
+  code?: string;
+  status?: OrderStatus;
+  expiresAt?: Date;
+}
+
+
+
+// Add interface for operator info
+export interface OperatorInfo {
+  id: string;
+  name: string;
+  displayName: string;
+  cost: number;
+  count: number;
+  rate: number;
+  supportedCountries?: string[];
+}
+
+// Interface for operator pricing information
+interface OperatorPricing {
+  quantity: number;
+  price: number;
+  error?: string;
 }
 
 // API functions
 export const getCountries = async () => {
   try {
-    const response = await axios.get('https://5sim.net/v1/guest/countries', {
+    console.log('Fetching countries from:', `${API_URL}/guest/countries`);
+    
+    const response = await axios.get(`${API_URL}/guest/countries`, {
       headers: {
         'Accept': 'application/json'
       }
     });
 
+    console.log('Countries API Response:', response.data);
+
     if (!response.data) {
-      throw new Error('No countries available');
+      throw new Error('No data received from countries API');
     }
 
-    // Transform the response into a more usable format
-    const countries = Object.entries(response.data)
-      .filter(([code]) => SUPPORTED_COUNTRIES.includes(code.toLowerCase())) // Only include supported countries
-      .map(([code, data]: [string, any]) => ({
-        code: code.toLowerCase(), // Ensure lowercase for consistency
-        name: data.text_en || code,
-        iso: Object.keys(data.iso)[0],
-        prefix: Object.keys(data.prefix)[0]
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name)); // Sort alphabetically by name
+    // Transform the data into the expected format
+    const transformedCountries = Object.entries(response.data).reduce((acc: any, [code, data]: [string, any]) => {
+      if (data && typeof data === 'object') {
+        acc[code] = {
+          code,
+          name: data.text_en || code,
+          iso: Object.keys(data.iso || {})[0] || '',
+          prefix: Object.keys(data.prefix || {})[0] || ''
+        };
+      }
+      return acc;
+    }, {});
 
-    console.log('Available countries:', countries);
-
-    if (countries.length === 0) {
-      throw new Error('No countries available');
+    if (Object.keys(transformedCountries).length === 0) {
+      throw new Error('No countries available after transformation');
     }
 
-    return { countries, error: null };
+    console.log('Transformed countries:', transformedCountries);
+
+    return { 
+      countries: transformedCountries,
+      error: null 
+    };
   } catch (error: any) {
     console.error('Error fetching countries:', {
-      error,
+      message: error.message,
       response: error.response?.data,
       status: error.response?.status
     });
-    const errorMessage = error.response?.data?.message || error.message;
+
     return {
-      countries: [],
-      error: errorMessage
+      countries: {},
+      error: error.message || 'Failed to fetch countries'
     };
   }
 };
@@ -295,122 +341,169 @@ export const getCountries = async () => {
 export const normalizeCountryInput = (country: string): string => {
   const normalized = country.toLowerCase().trim();
   
-  // Check if it's already a valid country code
-  if (SUPPORTED_COUNTRIES.includes(normalized)) {
-    return normalized;
+  // Special cases for England/UK
+  if (normalized === 'england' || normalized === 'uk' || normalized === 'united kingdom' || normalized === 'great britain') {
+    return 'england';  // Use 'england' instead of 'gb' for the API
   }
-  
-  // Check if there's a mapping for this country name
-  const mapped = COUNTRY_MAPPING[normalized];
-  if (mapped && SUPPORTED_COUNTRIES.includes(mapped)) {
-    return mapped;
-  }
-  
-  throw new Error(`Country "${country}" is not supported. Please choose from available countries.`);
+
+  return normalized;
 };
 
-export const getProducts = async (country: string) => {
+export const getProducts = async (country: string): Promise<{ products: Product[]; error?: string }> => {
   try {
-    // Normalize the country input first
     const normalizedCountry = normalizeCountryInput(country);
-    
-    if (!normalizedCountry) {
-      throw new Error('Country is required');
-    }
+    console.log(`Fetching products for country: ${country} (normalized: ${normalizedCountry})`);
 
-    // Convert country name to lowercase and check mapping
-    const countryLower = normalizedCountry.toLowerCase();
-    const countryCode = COUNTRY_MAPPING[countryLower] || countryLower;
+    const url = `https://5sim.net/v1/guest/products/${normalizedCountry}/any`;
+    console.log(`API URL: ${url}`);
 
-    console.log('Fetching products for country:', {
-      originalCountry: country,
-      countryLower,
-      countryCode,
-      url: `https://5sim.net/v1/guest/products/${countryCode}/any`
-    });
-
-    const response = await axios.get(`https://5sim.net/v1/guest/products/${countryCode}/any`, {
+    const response = await fetch(url, {
       headers: {
-        'Accept': 'application/json'
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
       }
     });
 
-    console.log('API Response:', response.data);
-
-    if (!response.data || Object.keys(response.data).length === 0) {
-      throw new Error('No products available');
+    if (!response.ok) {
+      if (response.status === 404) {
+        return { products: [], error: 'No products available for this country.' };
+      }
+      if (response.status === 400) {
+        return { products: [], error: 'Invalid country code. Please try a different country.' };
+      }
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    // Transform the response into a more usable format
-    const products = Object.entries(response.data)
-      .map(([name, data]: [string, any]) => ({
-        id: name,
-        name: name,
-        category: data.Category,
-        price: data.Price,
-        quantity: data.Qty
+    const data = await response.json();
+    console.log('API Response:', data);
+
+    // Transform the data into our Product type
+    const products = Object.entries(data)
+      .filter(([_, value]: [string, any]) => value.Category === 'activation' && value.Qty > 0)
+      .map(([service, value]: [string, any]) => ({
+        service,
+        category: value.Category,
+        quantity: value.Qty,
+        price: value.Price,
+        name: service,
+        id: service
       }))
-      .filter(product => 
-        // Only show products with available numbers and activation category
-        product.quantity > 0 && 
-        product.category === 'activation'
-      )
-      .sort((a, b) => a.name.localeCompare(b.name)); // Sort alphabetically
+      .sort((a, b) => b.quantity - a.quantity);
 
-    console.log('Transformed products:', products);
+    console.log(`Found ${products.length} products`);
+    return { products };
 
-    if (products.length === 0) {
-      throw new Error(`No services available for ${country}`);
-    }
-
-    return { products, error: null };
-  } catch (error: any) {
-    console.error('Error fetching products:', {
-      error,
-      response: error.response?.data,
-      status: error.response?.status
-    });
-    const errorMessage = error.response?.data?.message || error.message;
+  } catch (error) {
+    console.error('Error fetching products:', error);
     return {
       products: [],
-      error: errorMessage
+      error: 'Failed to fetch products. Please try again later.'
     };
   }
 };
 
-export const getOperators = async (country: string, product: string) => {
+export const getOperators = async (
+  country: string,
+  service: string
+): Promise<{ operators: OperatorInfo[]; error?: string }> => {
   try {
-    const response = await axios.get(`https://5sim.net/v1/guest/prices`, {
-      params: {
-        country,
-        product
-      },
-      headers: {
-        'Accept': 'application/json'
-      }
-    });
+    const normalizedCountry = normalizeCountryInput(country);
+    console.log(`Getting operators for ${service} in ${normalizedCountry}`);
 
-    if (!response.data || !response.data[country] || !response.data[country][product]) {
-      throw new Error('No operators available for this product');
+    // First get the country data to find available operators
+    const response = await fetch(`${API_URL}/guest/countries`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch country data');
     }
 
-    console.log('API Response:', response.data);
+    const countriesData = await response.json();
+    console.log('Countries data:', countriesData);
 
-    const operators = Object.entries(response.data[country][product]).map(([name, data]: [string, any]) => ({
-      id: name,
-      name: name,
-      displayName: name.charAt(0).toUpperCase() + name.slice(1),
-      cost: data.cost,
-      count: data.count,
-      rate: data.rate
-    }));
+    // Find the specific country data
+    const countryData = countriesData[normalizedCountry];
+    if (!countryData) {
+      throw new Error(`Country ${country} not found`);
+    }
 
-    return { operators, error: null };
+    // Initialize operators array
+    const operators: OperatorInfo[] = [];
+
+    // Parse operators from country data
+    for (const [key, value] of Object.entries(countryData)) {
+      // Check if this is an operator entry (has activation property)
+      if (typeof value === 'object' && value !== null && 'activation' in value) {
+        const operatorId = key;
+        
+        // Format operator name for display - just use the number after 'virtual'
+        const displayName = operatorId.match(/virtual(\d+)/)?.[1] || operatorId;
+
+        // Now get the prices for this operator
+        const pricesUrl = `${API_URL}/guest/products/${normalizedCountry}/${operatorId}`;
+        console.log('Fetching prices for operator:', pricesUrl);
+
+        const pricesResponse = await fetch(pricesUrl);
+        if (pricesResponse.ok) {
+          const pricesData = await pricesResponse.json();
+          const serviceData = pricesData[service];
+
+          if (serviceData && serviceData.Qty > 0) {
+            operators.push({
+              id: operatorId,
+              name: operatorId,
+              displayName: `Operator ${displayName}`,
+              cost: serviceData.Price,
+              count: serviceData.Qty,
+              rate: 85 // Standard success rate for specific operators
+            });
+          }
+        }
+      }
+    }
+
+    // Also check 'any' operator availability
+    const anyUrl = `${API_URL}/guest/products/${normalizedCountry}/any`;
+    const anyResponse = await fetch(anyUrl);
+
+    if (anyResponse.ok) {
+      const anyData = await anyResponse.json();
+      if (anyData && anyData[service] && anyData[service].Qty > 0) {
+        operators.unshift({
+          id: 'any',
+          name: 'any',
+          displayName: 'Any Operator',
+          cost: anyData[service].Price,
+          count: anyData[service].Qty,
+          rate: 90 // Higher success rate for 'any' operator
+        });
+      }
+    }
+
+    // Log the operators we found
+    console.log('Found operators:', operators);
+
+    if (operators.length === 0) {
+      console.log('No operators found with available numbers');
+      return {
+        operators: [],
+        error: `No operators available for ${service} in ${country}`
+      };
+    }
+
+    // Sort operators by availability and price (keeping 'any' first)
+    operators.sort((a, b) => {
+      if (a.name === 'any') return -1;
+      if (b.name === 'any') return 1;
+      if (a.count === b.count) return a.cost - b.cost;
+      return b.count - a.count;
+    });
+
+    return { operators };
+
   } catch (error) {
-    console.error('Error fetching operators:', error);
+    console.error('Error getting operators:', error);
     return {
       operators: [],
-      error: error instanceof Error ? error.message : 'Failed to fetch operators'
+      error: error instanceof Error ? error.message : 'Failed to get operators'
     };
   }
 };
@@ -440,13 +533,10 @@ export const getServices = async (
 ): Promise<ServiceProduct[]> => {
   try {
     // First get the list of countries to validate the country code
-    const countries = await getCountries();
+
     const normalizedCountry = country.toLowerCase();
     
-    // Check if the country exists in the available countries
-    if (!countries[normalizedCountry]) {
-      throw new Error(`Country "${country}" is not supported. Please choose from available countries.`);
-    }
+   
 
     const normalizedOperator = operator.toLowerCase();
     console.log('Fetching services for:', { country: normalizedCountry, operator: normalizedOperator });
@@ -465,7 +555,7 @@ export const getServices = async (
 
       const displayName = product.name
         .split('_')
-        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
         .join(' ');
 
       return {
@@ -505,95 +595,226 @@ export const getServices = async (
 };
 
 export const getVirtualNumber = async (
-  countryCode: string, 
-  serviceCode: string,
+  country: string,
+  service: string,
   operator: string = 'any'
-): Promise<VirtualNumber | undefined> => {
+): Promise<{ phone?: string; id?: string; error?: string }> => {
   try {
-    // Validate inputs
-    if (!countryCode || !serviceCode) {
-      throw new Error('Invalid country code or service');
-    }
+    const normalizedCountry = normalizeCountryInput(country);
+    console.log(`Getting virtual number for ${service} in ${normalizedCountry} with operator ${operator}`);
 
-    // First validate the country code against available countries
-    const countries = await getCountries();
-    const normalizedCountry = countryCode.toLowerCase();
-    
-    if (!countries[normalizedCountry]) {
-      throw new Error(`Country "${countryCode}" is not supported. Please choose from available countries.`);
-    }
+    // First check if there are any pending orders
+    try {
+      const response = await fetch(`${API_URL}/user/orders`, {
+        headers: {
+          'Accept': 'application/json',
+          'Authorization': `Bearer ${API_KEY}`
+        }
+      });
 
-    const normalizedOperator = operator.toLowerCase();
-    const normalizedService = serviceCode.toLowerCase();
-
-    // Check balance before purchase
-    const balance = await getBalance();
-    if (!balance || balance.balance <= 0) {
-      throw new Error('Insufficient balance');
-    }
-
-    console.log('Purchasing number with:', { 
-      country: normalizedCountry, 
-      operator: normalizedOperator, 
-      service: normalizedService 
-    });
-
-    const data = await handleApiResponse<VirtualNumber>(
-      `/user/buy/activation/${normalizedCountry}/${normalizedOperator}/${normalizedService}`,
-      'get',
-      undefined,
-      API_CONFIG
-    );
-
-    // Validate response
-    if (!data || !data.phone) {
-      throw new Error('Invalid response from server');
-    }
-
-    // Start monitoring the order status immediately
-    retryGetSmsCode(data.id, 30, 5000).catch(error => {
-      console.error('Failed to monitor order status:', error);
-    });
-
-    return data;
-  } catch (error: any) {
-    if (error.response?.status === 400) {
-      const message = error.response.data?.message || '';
-      if (message.includes('no free phones')) {
-        throw new Error(`No numbers available for ${serviceCode} with ${operator}. Please try another operator or service.`);
-      } else if (message.includes('no product')) {
-        throw new Error(`Service "${serviceCode}" is not supported in ${countryCode}`);
-      } else if (message.includes('no country')) {
-        throw new Error(`Country "${countryCode}" is not supported`);
-      } else if (message.includes('bad country')) {
-        throw new Error(`Invalid country code: ${countryCode}. Please use a valid country code.`);
-      } else if (message.includes('bad operator')) {
-        throw new Error(`Invalid operator: ${operator}. Please use a valid operator.`);
+      if (response.ok) {
+        const orders = await response.json();
+        console.log('Current orders:', orders);
+        
+        // Only consider orders from the last hour as pending
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+        const pendingOrders = orders.filter((order: any) => 
+          order.status === 'PENDING' && 
+          new Date(order.created_at) > oneHourAgo
+        );
+        
+        if (pendingOrders.length > 0) {
+          console.log('Found pending orders:', pendingOrders);
+          return { error: 'You have pending orders. Please complete or cancel them before purchasing a new number.' };
+        }
       }
+    } catch (error) {
+      console.warn('Failed to check pending orders:', error);
     }
-    console.error('Failed to get virtual number:', error);
-    throw error;
+
+    // Check if the service is available with the specified operator
+    const productsUrl = `${API_URL}/guest/products/${normalizedCountry}/${operator}`;
+    console.log('Checking product availability:', productsUrl);
+
+    const productsResponse = await fetch(productsUrl, {
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!productsResponse.ok) {
+      const errorData = await productsResponse.json().catch(() => ({}));
+      console.error('Products API Error:', {
+        status: productsResponse.status,
+        statusText: productsResponse.statusText,
+        error: errorData
+      });
+      return { error: `Operator ${operator} is not available in ${country}` };
+    }
+
+    const products = await productsResponse.json();
+    const serviceInfo = products[service];
+
+    if (!serviceInfo) {
+      return { error: `Service "${service}" is not available with operator ${operator} in ${country}` };
+    }
+
+    if (serviceInfo.Qty === 0) {
+      return { error: `No numbers available for ${service} with operator ${operator} in ${country}` };
+    }
+
+    // Check user balance
+    try {
+      const balanceResponse = await fetch(`${API_URL}/user/profile`, {
+        headers: {
+          'Accept': 'application/json',
+          'Authorization': `Bearer ${API_KEY}`
+        }
+      });
+
+      if (balanceResponse.ok) {
+        const balanceData = await balanceResponse.json();
+        console.log('User balance:', balanceData.balance, 'Service price:', serviceInfo.Price);
+        
+        // Convert both to numbers and compare with a small buffer for fees
+        const balance = Number(balanceData.balance);
+        const price = Number(serviceInfo.Price);
+        
+        if (isNaN(balance) || isNaN(price)) {
+          console.error('Invalid balance or price:', { balance, price });
+          return { error: 'Invalid balance or price values' };
+        }
+
+        if (balance < price) {
+          return { 
+            error: `Insufficient balance. Service cost is ${price} but your balance is ${balance}` 
+          };
+        }
+      } else {
+        console.error('Balance check failed:', await balanceResponse.text());
+      }
+    } catch (error) {
+      console.error('Failed to check balance against service price:', error);
+    }
+
+    // Now purchase the number
+    const purchaseUrl = `${API_URL}/user/buy/activation/${normalizedCountry}/${operator}/${service}`;
+    console.log('Purchasing number:', purchaseUrl);
+
+    const purchaseResponse = await fetch(purchaseUrl, {
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${API_KEY}`
+      }
+    });
+
+    // Log the full purchase response for debugging
+    console.log('Purchase Response:', {
+      status: purchaseResponse.status,
+      statusText: purchaseResponse.statusText,
+      headers: Object.fromEntries(purchaseResponse.headers.entries())
+    });
+
+    if (!purchaseResponse.ok) {
+      let errorData;
+      try {
+        errorData = await purchaseResponse.json();
+      } catch (e) {
+        errorData = { message: purchaseResponse.statusText };
+      }
+
+      console.error('Purchase API Error:', {
+        status: purchaseResponse.status,
+        statusText: purchaseResponse.statusText,
+        error: errorData
+      });
+
+      // Handle specific error cases
+      if (purchaseResponse.status === 400) {
+        const message = errorData.message || '';
+        if (message.includes('no free phones')) {
+          return { error: `No numbers available for ${service} with ${operator}. Please try another operator or service.` };
+        } else if (message.includes('no product')) {
+          return { error: `Service "${service}" is not supported with operator ${operator} in ${country}` };
+        } else if (message.includes('no country')) {
+          return { error: `Country "${country}" is not supported` };
+        } else if (message.includes('not enough user balance')) {
+          return { error: 'Insufficient balance. Please add funds to your wallet.' };
+        } else if (message.includes('bad operator')) {
+          return { error: `Invalid operator: ${operator}. Please choose from the available operators.` };
+        } else if (message.includes('pending activation')) {
+          return { error: 'You have a pending activation. Please complete or cancel it before purchasing a new number.' };
+        }
+      }
+
+      return { error: errorData.message || 'Failed to purchase virtual number' };
+    }
+
+    let data;
+    try {
+      data = await purchaseResponse.json();
+      console.log('Purchase response data:', data);
+    } catch (e) {
+      console.error('Error parsing purchase response:', e);
+      return { error: 'Invalid response from server' };
+    }
+
+    if (!data || !data.phone) {
+      console.error('Invalid response data:', data);
+      return { error: 'Invalid response from server - missing phone number' };
+    }
+
+    return {
+      phone: data.phone,
+      id: data.id.toString()
+    };
+  } catch (error) {
+    console.error('Error getting virtual number:', error);
+    return {
+      error: error instanceof Error ? error.message : 'Failed to get virtual number. Please try again later.'
+    };
   }
 };
 
 export const getSmsCode = async (id: string): Promise<OrderResponse | undefined> => {
   try {
-    const data = await handleApiResponse<OrderResponse>(`/user/check/${id}`, 'get');
+    const response = await fetch(`${API_URL}/user/check/${id}`, {
+      headers: {
+        'Authorization': `Bearer ${API_KEY}`,
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
     
-    // Add additional status checks
-    if (data) {
-      // Check for timeout
+    // Check if SMS is received
+    if (data.sms && data.sms.length > 0) {
+      data.status = OrderStatus.RECEIVED;
+      return data;
+    }
+    
+    // Check for timeouts if we have created_at
+    if (data.created_at) {
       const createdAt = new Date(data.created_at);
       const now = new Date();
-      const timeDiff = (now.getTime() - createdAt.getTime()) / 1000; // in seconds
+      const timeDiffSeconds = (now.getTime() - createdAt.getTime()) / 1000;
       
-      if (timeDiff > 900) { // 15 minutes timeout
+      // No SMS timeout after 5 minutes (300 seconds)
+      if (timeDiffSeconds > 300) {
         data.status = OrderStatus.TIMEOUT;
+        return data;
       }
       
-      // Check if SMS is received
-      if (data.sms && data.sms.length > 0) {
-        data.status = OrderStatus.RECEIVED;
+      // Maximum order timeout after 15 minutes (900 seconds)
+      if (timeDiffSeconds > 900) {
+        data.status = OrderStatus.TIMEOUT;
+        return data;
       }
     }
     
@@ -697,24 +918,37 @@ export const banOrder = async (orderId: number): Promise<OrderResponse | undefin
 export const retryGetSmsCode = async (
   orderId: string, 
   maxRetries: number = 30,
-  intervalMs: number = 5000
+  intervalMs: number = 10000
 ): Promise<OrderResponse | undefined> => {
   let retries = 0;
   
   while (retries < maxRetries) {
     try {
+      console.log(`Checking SMS - Attempt ${retries + 1}/${maxRetries}`);
       const response = await getSmsCode(orderId);
       
-      if (response) {
-        // If we got an SMS or the order is in a final state, return immediately
-        if (
-          response.sms?.length > 0 ||
-          response.status === OrderStatus.CANCELED ||
-          response.status === OrderStatus.BANNED ||
-          response.status === OrderStatus.TIMEOUT
-        ) {
-          return response;
-        }
+      if (!response) {
+        console.log('No response from API, retrying...');
+        await new Promise(resolve => setTimeout(resolve, intervalMs));
+        retries++;
+        continue;
+      }
+
+      console.log('API Response:', {
+        status: response.status,
+        hasSms: response.sms?.length > 0,
+        createdAt: response.created_at
+      });
+      
+      // If we got an SMS or the order is in a final state, return immediately
+      if (
+        response.sms?.length > 0 ||
+        response.status === OrderStatus.CANCELED ||
+        response.status === OrderStatus.BANNED ||
+        response.status === OrderStatus.TIMEOUT ||
+        response.status === OrderStatus.FINISHED
+      ) {
+        return response;
       }
       
       // Wait before next retry
@@ -722,9 +956,312 @@ export const retryGetSmsCode = async (
       retries++;
     } catch (error) {
       console.error(`Retry ${retries + 1}/${maxRetries} failed:`, error);
-      throw error;
+      // On error, wait a bit longer before retrying
+      await new Promise(resolve => setTimeout(resolve, intervalMs * 2));
+      retries++;
     }
   }
   
   throw new Error('Max retries reached while waiting for SMS');
+};
+
+// Add new verification-specific functions
+export const initiateVerification = async (
+  countryCode: string,
+  service: string = 'any'
+): Promise<OtpVerificationResult> => {
+  try {
+    const normalizedCountry = normalizeCountryInput(countryCode);
+    
+    // Get virtual number
+    const result = await getVirtualNumber(normalizedCountry, service);
+    
+    if (!result.phone) {
+      throw new Error(result.error || 'Failed to get virtual number');
+    }
+
+    // Calculate expiration time (5 minutes from now)
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+    return {
+      success: true,
+      message: 'Verification initiated successfully',
+      phone: result.phone,
+      orderId: result.id,
+      status: OrderStatus.PENDING,
+      expiresAt
+    };
+  } catch (error: any) {
+    return {
+      success: false,
+      message: error.message || 'Failed to initiate verification'
+    };
+  }
+};
+
+// Add function to check OTP status with timeout handling
+export const checkOtpStatus = async (
+  orderId: string,
+  timeoutSeconds: number = 300
+): Promise<OtpVerificationResult> => {
+  try {
+    const response = await retryGetSmsCode(orderId, 30, 5000);
+    
+    if (!response) {
+      throw new Error('Failed to check OTP status');
+    }
+
+    // Check if order has timed out
+    const createdAt = new Date(response.created_at);
+    const now = new Date();
+    const elapsedSeconds = (now.getTime() - createdAt.getTime()) / 1000;
+
+    if (elapsedSeconds > timeoutSeconds) {
+      return {
+        success: false,
+        message: 'OTP verification timed out',
+        status: OrderStatus.TIMEOUT
+      };
+    }
+
+    // Check if we received the SMS
+    if (response.sms && response.sms.length > 0) {
+      const latestSms = response.sms[response.sms.length - 1];
+      return {
+        success: true,
+        message: 'OTP code received',
+        code: latestSms.code,
+        phone: response.phone,
+        status: OrderStatus.RECEIVED
+      };
+    }
+
+    return {
+      success: true,
+      message: 'Waiting for OTP code',
+      status: response.status,
+      phone: response.phone
+    };
+  } catch (error: any) {
+    return {
+      success: false,
+      message: error.message || 'Failed to check OTP status'
+    };
+  }
+};
+
+// Add function to complete verification process
+export const completeVerification = async (
+  orderId: string,
+  action: 'finish' | 'cancel' | 'ban'
+): Promise<OtpVerificationResult> => {
+  try {
+    let response;
+    
+    switch (action) {
+      case 'finish':
+        response = await finishOrder(Number(orderId));
+        break;
+      case 'cancel':
+        response = await cancelOrder(Number(orderId));
+        break;
+      case 'ban':
+        response = await banOrder(Number(orderId));
+        break;
+    }
+
+    if (!response) {
+      throw new Error(`Failed to ${action} verification`);
+    }
+
+    return {
+      success: true,
+      message: `Verification ${action}ed successfully`,
+      status: response.status
+    };
+  } catch (error: any) {
+    return {
+      success: false,
+      message: error.message || `Failed to ${action} verification`
+    };
+  }
+};
+
+export const checkActivation = async (orderId: string): Promise<{ status?: string; code?: string; error?: string }> => {
+  try {
+    console.log(`Checking activation status for order: ${orderId}`);
+    const url = `https://5sim.net/v1/guest/check/${orderId}`;
+
+    const response = await fetch(url, {
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        return { error: 'Order not found.' };
+      }
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log('Activation status:', data);
+
+    // Check if we have received the SMS code
+    if (data.sms && data.sms.length > 0) {
+      const latestSms = data.sms[data.sms.length - 1];
+      return {
+        status: data.status,
+        code: latestSms.code
+      };
+    }
+
+    return {
+      status: data.status
+    };
+
+  } catch (error) {
+    console.error('Error checking activation:', error);
+    return {
+      error: 'Failed to check activation status. Please try again.'
+    };
+  }
+};
+
+export const waitForCode = async (orderId: string, maxAttempts: number = 30, interval: number = 5000): Promise<{ code?: string; error?: string }> => {
+  try {
+    console.log(`Starting to wait for SMS code for order: ${orderId}`);
+    console.log(`Will check ${maxAttempts} times with ${interval}ms interval`);
+
+    for (let i = 0; i < maxAttempts; i++) {
+      const result = await checkActivation(orderId);
+      
+      if (result.error) {
+        throw new Error(result.error);
+      }
+
+      if (result.code) {
+        console.log('SMS code received!');
+        return { code: result.code };
+      }
+
+      console.log(`Attempt ${i + 1}/${maxAttempts}: No code yet, status: ${result.status}`);
+      await new Promise(resolve => setTimeout(resolve, interval));
+    }
+
+    throw new Error('Timeout waiting for SMS code');
+  } catch (error) {
+    console.error('Error waiting for code:', error);
+    return {
+      error: error instanceof Error ? error.message : 'Failed to get SMS code'
+    };
+  }
+};
+
+// Function to find the best operator based on price and success rate
+export const findBestOperator = async (
+  country: string,
+  service: string,
+  maxPrice?: number
+): Promise<{ operator: OperatorInfo | null; error?: string }> => {
+  try {
+    const { operators, error } = await getOperators(country, service);
+    
+    if (error || !operators.length) {
+      return { 
+        operator: null, 
+        error: error || 'No operators available' 
+      };
+    }
+
+    // Filter operators by max price if specified
+    let availableOperators = operators;
+    if (maxPrice) {
+      availableOperators = operators.filter(op => op.cost <= maxPrice);
+      if (!availableOperators.length) {
+        return {
+          operator: null,
+          error: `No operators available within price limit of ${maxPrice}`
+        };
+      }
+    }
+
+    // Score each operator based on:
+    // - Success rate (50% weight)
+    // - Price (30% weight)
+    // - Availability (20% weight)
+    const scoredOperators = availableOperators.map(op => {
+      const successScore = (op.rate / 100) * 0.5;
+      const priceScore = (1 - (op.cost / Math.max(...availableOperators.map(o => o.cost)))) * 0.3;
+      const availabilityScore = (op.count / Math.max(...availableOperators.map(o => o.count))) * 0.2;
+      
+      return {
+        ...op,
+        totalScore: successScore + priceScore + availabilityScore
+      };
+    });
+
+    // Sort by total score and get the best operator
+    scoredOperators.sort((a, b) => b.totalScore - a.totalScore);
+    return { operator: scoredOperators[0] };
+
+  } catch (error) {
+    console.error('Error finding best operator:', error);
+    return {
+      operator: null,
+      error: error instanceof Error ? error.message : 'Failed to find best operator'
+    };
+  }
+};
+
+export const getOperatorPricing = async (
+  country: string,
+  operator: string,
+  service: string
+): Promise<OperatorPricing> => {
+  try {
+    const normalizedCountry = normalizeCountryInput(country);
+    console.log(`Fetching pricing for ${service} with ${operator} in ${normalizedCountry}`);
+
+    const url = `${API_URL}/guest/products/${normalizedCountry}/${operator}`;
+    console.log('API URL:', url);
+
+    const response = await fetch(url, {
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log('API Response:', data);
+
+    // Check if the service exists in the response
+    if (!data[service]) {
+      return {
+        quantity: 0,
+        price: 0,
+        error: `Service ${service} not available for this operator`
+      };
+    }
+
+    return {
+      quantity: data[service].Qty || 0,
+      price: data[service].Price || 0
+    };
+
+  } catch (error) {
+    console.error('Error fetching operator pricing:', error);
+    return {
+      quantity: 0,
+      price: 0,
+      error: error instanceof Error ? error.message : 'Failed to fetch pricing'
+    };
+  }
 };
