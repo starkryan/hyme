@@ -11,8 +11,9 @@ export interface Transaction {
   user_id: string;
   amount: number;
   type: 'CREDIT' | 'DEBIT';
-  status: 'PENDING' | 'COMPLETED' | 'FAILED';
+  status: 'PENDING' | 'COMPLETED' | 'FAILED' | 'REFUNDED';
   reference_id?: string;
+  description?: string;
   created_at: string;
   updated_at: string;
 }
@@ -24,6 +25,19 @@ export interface RechargeRequest {
   payment_method: 'UPI';
   status: 'PENDING' | 'COMPLETED' | 'FAILED';
   utr_number: string;
+  created_at: string;
+  updated_at: string;
+}
+export interface OtpSession {
+  id: string;
+  user_id: string;
+  order_id: string;
+  phone_number: string;
+  service: string;
+  sms_code?: string;
+  full_sms?: string;
+  status: 'PENDING' | 'RECEIVED' | 'CANCELED' | 'TIMEOUT' | 'FINISHED' | 'BANNED';
+  transaction_id: string;
   created_at: string;
   updated_at: string;
 }

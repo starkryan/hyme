@@ -1,4 +1,4 @@
-import axios, { AxiosError, AxiosInstance, AxiosResponse } from 'axios';
+import axios, { AxiosError, AxiosInstance } from 'axios';
 
 // Configuration constants
 const API_URL = process.env.NEXT_PUBLIC_5SIM_API_URL || 'https://5sim.net/v1';
@@ -161,19 +161,6 @@ export const handleApiResponse = async <T>(
   }
 };
 
-// Interfaces for better type safety
-interface VirtualNumber {
-  id: string;
-  phone: string;
-  operator: string;
-  product: string;
-  price: number;
-  status: string;
-  expires: string;
-  created_at: string;
-  country: string;
-}
-
 interface SmsMessage {
   created_at: string;
   date: string;
@@ -211,14 +198,6 @@ interface ServiceProduct {
   operator: string; // e.g., "airtel", "vodafone"
 }
 
-interface OperatorResponse {
-  id: string;
-  name: string;
-  displayName: string;
-  cost: number;
-  count: number;
-  rate: number;
-}
 
 interface ServiceData {
   cost: number;
@@ -229,9 +208,6 @@ interface OperatorServices {
   [service: string]: ServiceData;
 }
 
-interface PricesResponse {
-  [operator: string]: OperatorServices;
-}
 
 interface BalanceResponse {
   balance: number;
@@ -245,12 +221,6 @@ interface CountryInfo {
   [key: string]: any;
 }
 
-interface CountriesResponse {
-  countries: {
-    [key: string]: CountryInfo;
-  };
-  error: string | null;
-}
 
 // Add better error handling for OTP verification
 interface OtpVerificationResult {
@@ -545,7 +515,6 @@ export const getServices = async (
     const products = await getProducts(normalizedCountry);
 
     // Get operators for the specific country and product
-    const operators = await getOperators(normalizedCountry, products.products[0].id);
 
     const services: ServiceProduct[] = products.products.map((product: any) => {
       // Only include activation services

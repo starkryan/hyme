@@ -104,6 +104,14 @@ export default function Navbar() {
             Your current balance is ₹{walletBalance}
           </SheetDescription>
         </SheetHeader>
+        <div className="flex items-center justify-between py-4">
+          <Link href="/wallet">
+            <Button className="w-full">
+              <Wallet className="mr-2 h-4 w-4" />
+              Recharge Wallet
+            </Button>
+          </Link>
+        </div>
         <Separator className="my-4" />
         <ScrollArea className="h-[calc(100vh-12rem)] pr-4">
           <div className="space-y-4">

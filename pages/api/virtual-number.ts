@@ -21,83 +21,16 @@ interface ProductsResponse {
   [key: string]: ServiceData;
 }
 
-const VALID_OPERATORS = [
-  'any',
-  
-  'virtual7',
-  'virtual21',
-  'virtual52',
-  'virtual54',
-  'virtual51',
-  'virtual53',
-  'virtual8',
-  'virtual26',
-  'virtual12',
-  'virtual15',
-  'virtual16',
-  'virtual17',
-  'virtual19',
-  'virtual20',
-  'virtual22',
-  'virtual27',
-  'virtual28',
-  'virtual34',
-  'tmobile',
-  'virginmobile',
-  'play',
-  'redbull',
-  'virtual56',
-  'virtual4',
-  'virtual2',
-  'virtual33',
-  'virtual36',
-  'virtual37',
-  'virtual38',
-  'virtual39',
-  'virtual40',
-  'virtual41',
-  'virtual42',
-  'virtual47',
-  'virtual49',
-  'virtual57',
-  'claro',
-  'globe',
-  'kcell',
-  'movistar',
-  'lycamobile',
-  'yota',
-  'matrix',
-  'orange',
-  'redbullmobile',
-  'mts',
-  'tele2',
-  'beeline',
-  'smart',
-  'rostelecom',
-  'megafon',
-  'sun',
-  'altel',
-  'activ',
-  'tnt',
-  '019',
-  'vodafone',
-  'range1',
-  'tigo',
-  'kyivstar',
-  'three',
-  'virtual58',
-  'zz',
-  'pildyk',
-  'itelecom',
-  'ee',
-  'lebara',
-  'partner',
-  'syma',
-  'o2',
-  
-] as const;
+interface CountryData {
+  [key: string]: {
+    activation?: boolean;
+    [key: string]: any;
+  };
+}
 
-type ValidOperator = typeof VALID_OPERATORS[number];
+interface CountriesResponse {
+  [key: string]: CountryData;
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -110,17 +43,35 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: 'Missing required parameters: country and service are required' });
   }
 
-  // Validate operator
+  const normalizedCountry = String(country).toLowerCase();
   const normalizedOperator = String(operator).toLowerCase();
-  if (!VALID_OPERATORS.includes(normalizedOperator as ValidOperator)) {
-    return res.status(400).json({ 
-      error: `Invalid operator. Valid operators are: ${VALID_OPERATORS.join(', ')}` 
-    });
-  }
 
   try {
-    // First check if the operator is available for this country/service combination
-    const checkUrl = `${API_URL}/guest/products/${country}`;
+    // First fetch available operators for this country
+    const operatorsResponse = await axios.get<CountriesResponse>(`${API_URL}/guest/countries`);
+    const countryData = operatorsResponse.data[normalizedCountry];
+    
+    if (!countryData) {
+      return res.status(400).json({ error: `Country ${country} not found` });
+    }
+
+    // Get valid operators for this country
+    const validOperators = ['any'];
+    for (const [key, value] of Object.entries(countryData)) {
+      if (typeof value === 'object' && value !== null && 'activation' in value) {
+        validOperators.push(key);
+      }
+    }
+
+    // Validate operator
+    if (!validOperators.includes(normalizedOperator)) {
+      return res.status(400).json({ 
+        error: `Invalid operator. Valid operators are: ${validOperators.join(', ')}` 
+      });
+    }
+
+    // Check service availability
+    const checkUrl = `${API_URL}/guest/products/${normalizedCountry}`;
     const checkResponse = await axios.get<ProductsResponse>(checkUrl, {
       headers: {
         'Accept': 'application/json',
@@ -164,7 +115,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // Proceed with purchase
-    const purchaseUrl = `${API_URL}/guest/buy/activation/${country}/${normalizedOperator}/${service}`;
+    const purchaseUrl = `${API_URL}/guest/buy/activation/${normalizedCountry}/${normalizedOperator}/${service}`;
     
     const response = await axios.get(purchaseUrl, {
       headers: {

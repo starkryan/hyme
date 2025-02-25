@@ -12,8 +12,16 @@ const Dashboard = () => {
   }, []);
 
   return (
-    <div className="container mx-auto p-4 bg-center flex items-center justify-center h-screen">
-      <GetVirtualNumber />
+    <div className="min-h-screen bg-background">
+      <div className="container mx-auto py-6 px-4 space-y-6">
+        <div className="flex flex-col gap-4">
+          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+          <p className="text-muted-foreground">
+            Get virtual numbers for OTP verification.
+          </p>
+        </div>
+        <GetVirtualNumber />
+      </div>
     </div>
   );
 };
