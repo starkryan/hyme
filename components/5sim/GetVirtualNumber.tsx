@@ -281,21 +281,25 @@ const GetVirtualNumber = () => {
   }, [selectedCountry, selectedProduct])
 
   useEffect(() => {
-    const fetchWalletBalance = async () => {
-      if (!user) return
-      try {
-        const balance = await getWalletBalance(user.id)
-        setWalletBalance(balance)
-      } catch (error: any) {
-        console.error("Error fetching wallet balance:", error)
-        toast.error(`Failed to fetch wallet balance: ${error.message}`)
-      }
-    }
+    let intervalId: NodeJS.Timeout;
 
     if (user) {
-      fetchWalletBalance()
+      // Initial fetch
+      getWalletBalance(user.id).then(setWalletBalance);
+
+      // Refresh every 30 seconds while component is mounted
+      intervalId = setInterval(async () => {
+        const balance = await getWalletBalance(user.id);
+        setWalletBalance(balance);
+      }, 30000);
     }
-  }, [user])
+
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+  }, [user]);
 
   useEffect(() => {
     const loadActiveSession = async () => {
@@ -532,6 +536,10 @@ const GetVirtualNumber = () => {
       setOrderStatus("PENDING")
       setIsCheckingSms(true)
 
+      // After successful purchase, refresh wallet balance
+      const newBalance = await getWalletBalance(user.id);
+      setWalletBalance(newBalance);
+
       toast.success("Virtual number received!", {
         description: `Your number is: ${data.phone}`,
       })
@@ -661,6 +669,10 @@ const GetVirtualNumber = () => {
               handleVirtualNumberRefund(user.id, session.transaction_id, "CANCELED"),
               updateOtpSession(session.id, { status: "CANCELED" }),
             ])
+
+            // Refresh wallet balance after refund
+            const newBalance = await getWalletBalance(user.id);
+            setWalletBalance(newBalance);
           }
         }
 
@@ -716,6 +728,12 @@ const GetVirtualNumber = () => {
         // Clear persisted data
         clearOtpData()
         toast.success("Number banned successfully. This number cannot be used again.")
+        
+        // Refresh wallet balance if there was a refund
+        if (user) {
+          const newBalance = await getWalletBalance(user.id);
+          setWalletBalance(newBalance);
+        }
         setNumber(null)
         setSmsCode(null)
         setIsCheckingSms(false)
@@ -1002,9 +1020,10 @@ const GetVirtualNumber = () => {
     try {
       await cleanupStuckTransactions(user.id)
       toast.success("Successfully cleaned up pending transactions")
-      // Refresh wallet balance
-      const balance = await getWalletBalance(user.id)
-      setWalletBalance(balance)
+      
+      // Refresh wallet balance after cleanup
+      const newBalance = await getWalletBalance(user.id);
+      setWalletBalance(newBalance);
     } catch (error: any) {
       console.error("Error cleaning up transactions:", error)
       toast.error("Failed to clean up transactions", {

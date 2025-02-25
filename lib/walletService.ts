@@ -1,5 +1,5 @@
-import { createClient, PostgrestError } from '@supabase/supabase-js';
-import { WalletBalance, Transaction, RechargeRequest } from '@/types/wallet';
+import { createClient } from '@supabase/supabase-js';
+import { Transaction, RechargeRequest } from '@/types/wallet';
 
 // Initialize Supabase client
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -503,6 +503,21 @@ export const createVirtualNumberTransaction = async (
     // Start transaction
     await supabase.rpc('begin');
     
+    // First check if user has sufficient balance
+    const { data: walletData, error: walletError } = await supabase
+      .from('wallet_balances')
+      .select('balance')
+      .eq('user_id', userId)
+      .single();
+
+    if (walletError) throw walletError;
+    if (!walletData) throw new Error('Wallet not found');
+
+    const currentBalance = Number(walletData.balance);
+    if (currentBalance < amount) {
+      throw new Error('Insufficient balance');
+    }
+
     // Create pending transaction first
     const { data: transaction, error: transactionError } = await supabase
       .from('transactions')
@@ -522,8 +537,18 @@ export const createVirtualNumberTransaction = async (
 
     if (transactionError) throw transactionError;
 
-    // Don't deduct balance yet - only reserve the amount
-    // Balance will be deducted when OTP is received successfully
+    // Deduct balance immediately but keep transaction pending
+    const newBalance = currentBalance - amount;
+    const { error: updateError } = await supabase
+      .from('wallet_balances')
+      .update({ 
+        balance: newBalance,
+        updated_at: new Date().toISOString()
+      })
+      .eq('user_id', userId)
+      .eq('balance', currentBalance); // Optimistic locking
+
+    if (updateError) throw updateError;
     
     await supabase.rpc('commit');
     return transaction;
@@ -554,30 +579,6 @@ export const handleSuccessfulOTP = async (
     if (transactionError) throw transactionError;
     if (!transaction) throw new Error('Transaction not found');
 
-    // Get current balance
-    const { data: walletData, error: walletError } = await supabase
-      .from('wallet_balances')
-      .select('balance')
-      .eq('user_id', userId)
-      .single();
-
-    if (walletError) throw walletError;
-    if (!walletData) throw new Error('Wallet not found');
-
-    const newBalance = Number(walletData.balance) - Number(transaction.amount);
-    if (newBalance < 0) throw new Error('Insufficient balance');
-
-    // Update wallet balance directly
-    const { error: balanceError } = await supabase
-      .from('wallet_balances')
-      .update({
-        balance: newBalance,
-        updated_at: new Date().toISOString()
-      })
-      .eq('user_id', userId);
-
-    if (balanceError) throw balanceError;
-
     // Update transaction status to COMPLETED
     const { error: updateError } = await supabase
       .from('transactions')
@@ -603,7 +604,6 @@ export async function cleanupStuckTransactions(
   const client = supabase;
   
   try {
-    // Start transaction
     await client.rpc('begin');
 
     // 1. Get all pending transactions older than 15 minutes
@@ -615,10 +615,7 @@ export async function cleanupStuckTransactions(
       .eq('type', 'DEBIT')
       .lt('created_at', new Date(Date.now() - 15 * 60 * 1000).toISOString());
 
-    if (fetchError) {
-      throw fetchError;
-    }
-
+    if (fetchError) throw fetchError;
     if (!pendingTransactions || pendingTransactions.length === 0) {
       await client.rpc('commit');
       return;
@@ -638,23 +635,36 @@ export async function cleanupStuckTransactions(
 
     // 2. Process each pending transaction
     for (const transaction of pendingTransactions) {
-      // Create refund transaction
-      const { error: refundError } = await client
+      // Check if a refund transaction already exists
+      const { data: existingRefund } = await client
         .from('transactions')
-        .insert({
-          user_id: userId,
-          amount: transaction.amount,
-          type: 'CREDIT',
-          status: 'COMPLETED',
-          reference_id: `REFUND_${transaction.reference_id}`,
-          order_id: transaction.order_id,
-          phone_number: transaction.phone_number,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        });
+        .select('*')
+        .eq('user_id', userId)
+        .eq('type', 'CREDIT')
+        .eq('reference_id', `REFUND_${transaction.reference_id}`)
+        .single();
 
-      if (refundError) {
-        throw refundError;
+      // Only process refund if no refund exists
+      if (!existingRefund) {
+        // Create refund transaction
+        const { error: refundError } = await client
+          .from('transactions')
+          .insert({
+            user_id: userId,
+            amount: transaction.amount,
+            type: 'CREDIT',
+            status: 'COMPLETED',
+            reference_id: `REFUND_${transaction.reference_id}`,
+            order_id: transaction.order_id,
+            phone_number: transaction.phone_number,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
+
+        if (refundError) throw refundError;
+
+        // Update wallet balance (refund the amount)
+        currentBalance += Number(transaction.amount);
       }
 
       // Update original transaction status to FAILED
@@ -666,31 +676,24 @@ export async function cleanupStuckTransactions(
         })
         .eq('id', transaction.id);
 
-      if (updateError) {
-        throw updateError;
-      }
-
-      // Update wallet balance (refund the amount)
-      currentBalance += Number(transaction.amount);
+      if (updateError) throw updateError;
     }
 
-    // Update wallet balance with total refund
-    const { error: balanceError } = await client
-      .from('wallet_balances')
-      .update({
-        balance: currentBalance,
-        updated_at: new Date().toISOString()
-      })
-      .eq('user_id', userId);
+    // Only update balance if there were actual refunds
+    if (currentBalance !== Number(walletData.balance)) {
+      const { error: balanceError } = await client
+        .from('wallet_balances')
+        .update({
+          balance: currentBalance,
+          updated_at: new Date().toISOString()
+        })
+        .eq('user_id', userId);
 
-    if (balanceError) {
-      throw balanceError;
+      if (balanceError) throw balanceError;
     }
 
-    // Commit transaction
     await client.rpc('commit');
   } catch (error) {
-    // Rollback on error
     await client.rpc('rollback');
     return handleSupabaseError(error, 'Error cleaning up stuck transactions');
   }
@@ -718,8 +721,30 @@ export const handleVirtualNumberRefund = async (
 
     // Only process refund if transaction is PENDING
     if (transaction.status === 'PENDING') {
-      // Update original transaction status to FAILED
+      // Get current balance
+      const { data: walletData, error: walletError } = await supabase
+        .from('wallet_balances')
+        .select('balance')
+        .eq('user_id', userId)
+        .single();
+
+      if (walletError) throw walletError;
+      if (!walletData) throw new Error('Wallet not found');
+
+      // Update balance - add the refund amount
+      const newBalance = Number(walletData.balance) + Number(transaction.amount);
       const { error: updateError } = await supabase
+        .from('wallet_balances')
+        .update({ 
+          balance: newBalance,
+          updated_at: new Date().toISOString()
+        })
+        .eq('user_id', userId);
+
+      if (updateError) throw updateError;
+
+      // Update original transaction status to FAILED
+      const { error: updateTransError } = await supabase
         .from('transactions')
         .update({ 
           status: 'FAILED',
@@ -727,7 +752,7 @@ export const handleVirtualNumberRefund = async (
         })
         .eq('id', transactionId);
 
-      if (updateError) throw updateError;
+      if (updateTransError) throw updateTransError;
 
       // Create refund transaction
       const { error: refundError } = await supabase
@@ -745,8 +770,6 @@ export const handleVirtualNumberRefund = async (
         });
 
       if (refundError) throw refundError;
-
-      // No need to update balance since we never deducted it in the first place
     }
 
     await supabase.rpc('commit');
