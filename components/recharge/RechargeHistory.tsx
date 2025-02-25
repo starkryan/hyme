@@ -207,7 +207,7 @@ export function RechargeHistory() {
                       {request.utr_number}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={getStatusColor(request.status)}>
+                      <Badge variant={getStatusColor(request.status) as 'default' | 'secondary' | 'destructive' | 'outline' | null | undefined}>
                         {request.status}
                       </Badge>
                     </TableCell>

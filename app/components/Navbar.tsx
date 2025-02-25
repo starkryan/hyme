@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
 import { Menu, Home, Wallet } from "lucide-react"
@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
 import { Loader2 } from "lucide-react"
+import { useQuery } from "@tanstack/react-query"
 
 interface Transaction {
   id: string;
@@ -58,25 +59,13 @@ export default function Navbar() {
   const [walletSheetOpen, setWalletSheetOpen] = useState(false)
   const { isSignedIn } = useAuth()
   const { user } = useUser()
-  const [walletBalance, setWalletBalance] = useState<number>(0)
   const [isLoading, setIsLoading] = useState(false)
 
-  useEffect(() => {
-    const fetchData = async () => {
-      if (!user) return;
-      setIsLoading(true);
-      try {
-        const balance = await getWalletBalance(user.id);
-        setWalletBalance(balance);
-      } catch (error) {
-        console.error('Error fetching data:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchData();
-  }, [user]);
+  const { data: walletBalance = 0 } = useQuery({
+    queryKey: ['walletBalance', user?.id],
+    queryFn: () => getWalletBalance(user?.id as string),
+    enabled: !!user?.id,
+  })
 
   const authLinks = (
     <div className="flex items-center gap-4">

@@ -446,7 +446,7 @@ export function RechargeRequests() {
                     <Badge
                       variant={
                         request.status === 'COMPLETED'
-                          ? 'success'
+                          ? 'default'
                           : request.status === 'FAILED'
                           ? 'destructive'
                           : 'secondary'

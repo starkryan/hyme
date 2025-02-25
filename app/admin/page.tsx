@@ -79,19 +79,23 @@ export default async function AdminDashboard(params: {
                             {user.emailAddresses[0]?.emailAddress}
                           </div>
                           <div className="text-sm text-muted-foreground">
-                            Role: <Badge variant="outline">{user.publicMetadata?.role || 'user'}</Badge>
+                            Role: <Badge variant="outline">{String(user.publicMetadata?.role || 'user')}</Badge>
                           </div>
                         </div>
                         <div className="w-full sm:w-auto">
                           {user.publicMetadata?.role === 'admin' ? (
-                            <form action={removeRole}>
+                            <form action={async (formData: FormData) => {
+                              await removeRole(formData);
+                            }}>
                               <input type="hidden" name="userId" value={user.id} />
                               <button className="w-full sm:w-auto bg-destructive text-destructive-foreground hover:bg-destructive/90 px-4 py-2 text-sm rounded-md transition-colors">
                                 Remove Admin
                               </button>
                             </form>
                           ) : (
-                            <form action={setRole}>
+                            <form action={async (formData: FormData) => {
+                              await setRole(formData);
+                            }}>
                               <input type="hidden" name="userId" value={user.id} />
                               <button className="w-full sm:w-auto bg-secondary text-secondary-foreground hover:bg-secondary/80 px-4 py-2 text-sm rounded-md transition-colors">
                                 Make Admin

@@ -40,15 +40,9 @@ import { Separator } from "@/components/ui/separator"
 import * as React from "react"
 import { useOtpPersist } from "@/hooks/useOtpPersist"
 import { createOtpSession, updateOtpSession, getActiveOtpSession, deleteOtpSession } from "@/lib/otpSessionService"
-import type { Command as CommandPrimitive } from "cmdk"
+import { Skeleton } from "@/components/ui/skeleton"
+import { useQuery } from '@tanstack/react-query'
 
-interface SmsMessage {
-  created_at: string
-  date: string
-  sender: string
-  text: string
-  code: string
-}
 
 interface Product {
   id: string
@@ -67,18 +61,11 @@ interface Operator {
   rate: number
 }
 
-interface ServiceProduct {
-  id: string
-  displayName: string
-  price: number
-}
 
 type OrderStatus = "PENDING" | "RECEIVED" | "CANCELED" | "TIMEOUT" | "FINISHED" | "BANNED"
 
 const RUB_TO_INR_RATE = 0.99 // Current approximate rate for RUB to INR conversion
 
-const successVariant = "secondary" // Replace "success" with "secondary"
-const warningVariant = "outline" // Replace "warning" with "outline"
 
 interface Country {
   code: string
@@ -87,19 +74,10 @@ interface Country {
   prefix: string
 }
 
-interface VirtualNumberResponse {
-  phone?: string
-  id?: string
-  created_at?: string
-  error?: string
-  status?: string
-  sms?: SmsMessage[]
-}
 
 const GetVirtualNumber = () => {
   const { user } = useUser()
-  const { otpData, updateOtpData, clearOtpData } = useOtpPersist("virtual-number-otp")
-  const [walletBalance, setWalletBalance] = useState<number>(0)
+  const { updateOtpData, clearOtpData } = useOtpPersist("virtual-number-otp")
   const [selectedCountry, setSelectedCountry] = useState<string>("")
   const [selectedProduct, setSelectedProduct] = useState<string>("")
   const [selectedOperator, setSelectedOperator] = useState<string>("")
@@ -141,6 +119,21 @@ const GetVirtualNumber = () => {
   const [countrySearchQuery, setCountrySearchQuery] = useState("")
   const [serviceSearchQuery, setServiceSearchQuery] = useState("")
   const [isCleaningUp, setIsCleaningUp] = useState(false)
+  const [isCopyingNumber, setIsCopyingNumber] = useState(false)
+  const [isCopyingOtp, setIsCopyingOtp] = useState(false)
+
+  // Add this query for real-time wallet balance
+  const { 
+    data: walletBalance = 0, 
+    isLoading: isWalletLoading,
+    refetch: refetchBalance
+  } = useQuery({
+    queryKey: ['walletBalance', user?.id],
+    queryFn: () => getWalletBalance(user?.id as string),
+    enabled: !!user?.id,
+    refetchInterval: 30000, // Refetch every 30 seconds
+    staleTime: 10000, // Consider data stale after 10 seconds
+  })
 
   const convertToINR = (rubPrice: number): number => {
     return Math.ceil(rubPrice * RUB_TO_INR_RATE)
@@ -282,34 +275,6 @@ const GetVirtualNumber = () => {
   }, [selectedCountry, selectedProduct])
 
   useEffect(() => {
-    let intervalId: NodeJS.Timeout;
-    let isSubscribed = true;
-
-    const fetchBalance = async () => {
-      if (!user) return;
-      try {
-        const balance = await getWalletBalance(user.id);
-        if (isSubscribed) {
-          setWalletBalance(balance);
-        }
-      } catch (error) {
-        console.error("Error fetching wallet balance:", error);
-        // Don't show error toast for background updates
-      }
-    };
-
-    if (user) {
-      fetchBalance();
-      intervalId = setInterval(fetchBalance, 30000);
-    }
-
-    return () => {
-      isSubscribed = false;
-      if (intervalId) clearInterval(intervalId);
-    };
-  }, [user]);
-
-  useEffect(() => {
     const loadActiveSession = async () => {
       if (!user) return
 
@@ -414,6 +379,7 @@ const GetVirtualNumber = () => {
       return () => {
         if (smsCheckInterval.current) {
           clearInterval(smsCheckInterval.current)
+          smsCheckInterval.current = null
         }
       }
     }
@@ -427,13 +393,10 @@ const GetVirtualNumber = () => {
         setTimeLeft((prevTimeLeft) => {
           if (prevTimeLeft === null) return null
           if (prevTimeLeft <= 1) {
-            clearInterval(intervalId!)
+            if (intervalId) clearInterval(intervalId)
             setIsTimeoutActive(false)
             setSmsCode(null)
             setFullSms(null)
-            toast.error("OTP timed out", {
-              description: "Please request a new OTP.",
-            })
             return 0
           }
           return prevTimeLeft - 1
@@ -497,7 +460,7 @@ const GetVirtualNumber = () => {
 
       const canPurchase = await canPurchaseNumber(user.id, priceInINR)
       if (!canPurchase) {
-        throw new Error("Cannot purchase number. Please ensure you have sufficient balance and no pending orders.")
+        throw new Error("Insufficient balance. Recharge now")
       }
 
       // Clean up any stuck transactions first
@@ -545,8 +508,7 @@ const GetVirtualNumber = () => {
       setIsCheckingSms(true)
 
       // After successful purchase, refresh wallet balance
-      const newBalance = await getWalletBalance(user.id);
-      setWalletBalance(newBalance);
+      await refetchBalance()
 
       toast.success("Virtual number received!", {
         description: `Your number is: ${data.phone}`,
@@ -647,10 +609,15 @@ const GetVirtualNumber = () => {
       }
     } catch (error: any) {
       console.error("Error getting virtual number:", error)
-      setError(error.message)
-      toast.error("Error", {
-        description: error.message,
-      })
+      setError(error.message || "An unexpected error occurred")
+      // Add more specific error handling
+      if (error.response?.status === 429) {
+        toast.error("Rate limit exceeded. Please try again later.")
+      } else if (error.response?.status === 403) {
+        toast.error("Access denied. Please check your authentication.")
+      } else {
+        toast.error(error.message || "An unexpected error occurred")
+      }
     } finally {
       setIsLoading(false)
     }
@@ -658,66 +625,72 @@ const GetVirtualNumber = () => {
 
   // Update cancel handler to update OTP session
   const handleCancelOrder = async () => {
-    setIsLoading(true)
-    setError(null)
+    setIsLoading(true);
     try {
-      if (!orderId) {
-        setError("No order ID to cancel.")
-        toast.error("No order ID to cancel.")
-        return
+      if (!orderId || !user) {
+        setError("No order ID to cancel or user not found.");
+        return;
       }
 
-      const data = await cancelOrder(orderId)
-
-      if (data) {
-        if (user) {
-          const session = await getActiveOtpSession(user.id)
-          if (session) {
-            await Promise.all([
-              handleVirtualNumberRefund(user.id, session.transaction_id, "CANCELED"),
-              updateOtpSession(session.id, { status: "CANCELED" }),
-            ])
-
-            // Refresh wallet balance after refund
-            const newBalance = await getWalletBalance(user.id);
-            setWalletBalance(newBalance);
-          }
-        }
-
-        // Update persisted data
-        updateOtpData({
-          orderStatus: "CANCELED",
-        })
-
-        toast.success("Order cancelled successfully and refund initiated.")
-        setNumber(null)
-        setSmsCode(null)
-        setIsCheckingSms(false)
-        setIsOrderCancelled(true)
-        setOrderStatus("CANCELED")
-        setIsOrderFinished(true)
-
-        // Clear timers
-        if (timeoutTimer) {
-          clearTimeout(timeoutTimer)
-          setTimeoutTimer(null)
-        }
-        if (smsCheckInterval.current) {
-          clearInterval(smsCheckInterval.current)
-          smsCheckInterval.current = null
-        }
-      } else {
-        setError("Failed to cancel order.")
-        toast.error("Failed to cancel order.")
+      // Get active session to get transaction ID
+      const session = await getActiveOtpSession(user.id);
+      if (!session) {
+        throw new Error("No active OTP session found");
       }
+
+      // Cancel order in 5sim first
+      const data = await cancelOrder(orderId);
+      if (!data) {
+        throw new Error("Failed to cancel order in 5sim");
+      }
+
+      // Process refund
+      await handleVirtualNumberRefund(user.id, session.transaction_id, "CANCELED");
+
+      // Delete OTP session since it's cancelled
+      await deleteOtpSession(session.id);
+
+      // Clear persisted data
+      clearOtpData();
+
+      // Update states
+      setNumber(null);
+      setSmsCode(null);
+      setFullSms(null);
+      setIsCheckingSms(false);
+      setIsOrderCancelled(true);
+      setOrderStatus("CANCELED");
+      setIsOrderFinished(true);
+      setSelectedCountry("");
+      setSelectedProduct("");
+      setSelectedOperator("");
+      setSelectedOperatorDetails(null);
+      setOrderId(null);
+      setOrderCreatedAt(null);
+      setRetryAttempts(0);
+
+      // Clear any remaining timers
+      if (timeoutTimer) {
+        clearTimeout(timeoutTimer);
+        setTimeoutTimer(null);
+      }
+      if (smsCheckInterval.current) {
+        clearInterval(smsCheckInterval.current);
+        smsCheckInterval.current = null;
+      }
+
+      // Refresh wallet balance after refund
+      await refetchBalance()
+
+      toast.success("Order cancelled successfully. Your funds have been refunded.");
     } catch (e: any) {
-      console.error("Error cancelling order:", e)
-      setError(e.message || "An unexpected error occurred.")
-      toast.error(e.message || "An unexpected error occurred.")
+      console.error("Error cancelling order:", e);
+      setError(e.message || "An unexpected error occurred.");
+      toast.error(e.message || "An unexpected error occurred.");
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
 
   const handleBanNumber = async () => {
     setIsLoading(true)
@@ -736,12 +709,9 @@ const GetVirtualNumber = () => {
         // Clear persisted data
         clearOtpData()
         toast.success("Number banned successfully. This number cannot be used again.")
-        
+
         // Refresh wallet balance if there was a refund
-        if (user) {
-          const newBalance = await getWalletBalance(user.id);
-          setWalletBalance(newBalance);
-        }
+        await refetchBalance()
         setNumber(null)
         setSmsCode(null)
         setIsCheckingSms(false)
@@ -764,13 +734,18 @@ const GetVirtualNumber = () => {
 
   const handleFinishOrder = async () => {
     setIsLoading(true)
-    setError(null)
     try {
       if (!orderId || !user) {
         setError("No order ID to finish or user not found.")
-        toast.error("No order ID to finish or user not found.")
         return
       }
+
+      // Add a lock to prevent multiple submissions
+      if (isOrderFinished) {
+        return
+      }
+
+      // Set temporary flag
 
       // Get active session
       const session = await getActiveOtpSession(user.id)
@@ -844,8 +819,7 @@ const GetVirtualNumber = () => {
           await deleteOtpSession(session.id)
 
           // Update wallet balance
-          const newBalance = await getWalletBalance(user.id)
-          setWalletBalance(newBalance)
+          await refetchBalance()
 
           // Clear all persisted data
           clearOtpData()
@@ -930,20 +904,20 @@ const GetVirtualNumber = () => {
     }
   }
 
-  const handleCopyToClipboard = (text: string, setState: (value: boolean) => void) => {
-    navigator.clipboard
-      .writeText(text)
-      .then(() => {
-        setState(true)
-        toast.success("Copied to clipboard!", {
-          className: "bg-green-500 text-white",
-        })
-        setTimeout(() => setState(false), 2000)
-      })
-      .catch((err) => {
-        console.error("Failed to copy text: ", err)
-        toast.error("Failed to copy text.")
-      })
+  const handleCopyToClipboard = async (text: string, setState: (value: boolean) => void) => {
+    const setLoadingState = text === number?.phone ? setIsCopyingNumber : setIsCopyingOtp
+    setLoadingState(true)
+    try {
+      await navigator.clipboard.writeText(text)
+      setState(true)
+      toast.success("Copied to clipboard!")
+      setTimeout(() => setState(false), 2000)
+    } catch (err) {
+      console.error("Failed to copy text: ", err)
+      toast.error("Failed to copy text.")
+    } finally {
+      setLoadingState(false)
+    }
   }
 
   const handleCountryChange = async (value: string) => {
@@ -978,25 +952,6 @@ const GetVirtualNumber = () => {
     }
   }
 
-  const handleCountrySearch = React.useCallback(
-    (value: string) => {
-      setCountrySearchQuery(value)
-      if (!value || !Array.isArray(countries)) {
-        setFilteredCountries(countries)
-        return
-      }
-
-      const searchTerm = value.toLowerCase().trim()
-      const filtered = countries.filter(
-        (country) =>
-          country.name.toLowerCase().includes(searchTerm) ||
-          country.code.toLowerCase().includes(searchTerm) ||
-          (country.prefix && country.prefix.includes(searchTerm)),
-      )
-      setFilteredCountries(filtered)
-    },
-    [countries],
-  )
 
   useEffect(() => {
     setFilteredCountries(countries)
@@ -1007,7 +962,7 @@ const GetVirtualNumber = () => {
       case "PENDING":
         return "secondary"
       case "RECEIVED":
-        return "default" 
+        return "default"
       case "CANCELED":
         return "outline"
       case "TIMEOUT":
@@ -1028,10 +983,9 @@ const GetVirtualNumber = () => {
     try {
       await cleanupStuckTransactions(user.id)
       toast.success("Successfully cleaned up pending transactions")
-      
+
       // Refresh wallet balance after cleanup
-      const newBalance = await getWalletBalance(user.id);
-      setWalletBalance(newBalance);
+      await refetchBalance()
     } catch (error: any) {
       console.error("Error cleaning up transactions:", error)
       toast.error("Failed to clean up transactions", {
@@ -1042,15 +996,80 @@ const GetVirtualNumber = () => {
     }
   }
 
+  // Add debounce to wallet balance updates
+
+  // Add loading skeleton for the selection section
+  const SelectionSkeleton = () => (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {[1, 2, 3].map((i) => (
+        <div key={i} className="space-y-2">
+          <Skeleton className="h-4 w-20" />
+          <Skeleton className="h-10 w-full" />
+        </div>
+      ))}
+    </div>
+  )
+
+  // Add loading skeleton for the number display
+  const NumberDisplaySkeleton = () => (
+    <Card className="mt-4">
+      <CardContent className="space-y-4 p-4">
+        <div className="flex items-center justify-between p-4 rounded-lg border">
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-5 w-16" />
+            <Skeleton className="h-5 w-32" />
+          </div>
+          <Skeleton className="h-8 w-8 rounded-md" />
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <Skeleton className="h-16 rounded-md" />
+          <Skeleton className="h-16 rounded-md" />
+        </div>
+      </CardContent>
+    </Card>
+  )
+
   return (
     <Card className="w-full max-w-4xl mx-auto">
       <CardHeader className="sticky top-0 bg-background z-10 border-b">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <CardTitle className="text-2xl font-bold">Virtual Number Service</CardTitle>
           <div className="flex items-center gap-2">
-            <Badge variant="outline" className="font-mono">
-              <Wallet className="w-4 h-4 mr-1" />₹{walletBalance.toFixed(2)}
-            </Badge>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge 
+                    variant="outline" 
+                    className={cn(
+                      "font-mono transition-all duration-200",
+                      isWalletLoading && "opacity-70"
+                    )}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Wallet className="w-4 h-4" />
+                      {isWalletLoading ? (
+                        <Spinner className="h-3 w-3" />
+                      ) : (
+                        <span>₹{walletBalance.toFixed(2)}</span>
+                      )}
+                    </div>
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Current wallet balance</p>
+                  <p className="text-xs text-muted-foreground">Auto-updates every 30s</p>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="w-full mt-2" 
+                    onClick={() => refetchBalance()}
+                  >
+                    <RefreshCw className="h-3 w-3 mr-2" />
+                    Refresh Now
+                  </Button>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             <Button variant="outline" size="sm" onClick={handleCleanupTransactions} disabled={isCleaningUp}>
               {isCleaningUp ? (
                 <div className="flex items-center gap-2">
@@ -1069,316 +1088,328 @@ const GetVirtualNumber = () => {
       </CardHeader>
       <CardContent className="grid gap-6 p-4 sm:p-6">
         {/* Selection Section */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {/* Country Selection */}
-          <div className="space-y-2">
-            <Label className="flex items-center gap-2 text-sm font-medium">
-              Country
-              {isCountryLoading && <Spinner className="h-4 w-4" />}
-            </Label>
-            <Popover 
-              open={countryOpen} 
-              onOpenChange={(open) => {
-                setCountryOpen(open)
-                if (!open) setCountrySearchQuery("")
-              }}
-            >
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  role="combobox"
-                  aria-expanded={countryOpen}
-                  className="w-full justify-between"
-                  disabled={isCountryLoading}
-                >
-                  {isCountryLoading ? (
-                    <Spinner className="h-4 w-4" />
-                  ) : selectedCountry ? (
-                    <div className="flex items-center justify-between w-full">
-                      <span className="truncate">
-                        {countries.find((country) => country.code === selectedCountry)?.name}
-                      </span>
-                      <Badge variant="secondary" className="font-mono text-xs">
-                        {countries.find((country) => country.code === selectedCountry)?.code}
-                      </Badge>
-                    </div>
-                  ) : (
-                    <span className="text-muted-foreground">Select country</span>
-                  )}
-                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-                <Command className="w-full">
-                  <CommandInput
-                    placeholder="Search countries..."
-                    value={countrySearchQuery}
-                    onValueChange={setCountrySearchQuery}
-                  />
-                  <CommandList>
-                    <CommandEmpty>No countries found</CommandEmpty>
-                    <CommandGroup className="max-h-[300px] overflow-auto">
-                      {Array.isArray(filteredCountries) &&
-                        filteredCountries.map((country) => (
+        {isCountryLoading || isProductLoading ? (
+          <SelectionSkeleton />
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {/* Country Selection */}
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2 text-sm font-medium">
+                Country
+                {isCountryLoading && <Spinner className="h-4 w-4" />}
+              </Label>
+              <Popover
+                open={countryOpen}
+                onOpenChange={(open) => {
+                  setCountryOpen(open)
+                  if (!open) setCountrySearchQuery("")
+                }}
+              >
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={countryOpen}
+                    className="w-full justify-between"
+                    disabled={isCountryLoading}
+                  >
+                    {isCountryLoading ? (
+                      <Spinner className="h-4 w-4" />
+                    ) : selectedCountry ? (
+                      <div className="flex items-center justify-between w-full">
+                        <span className="truncate">
+                          {countries.find((country) => country.code === selectedCountry)?.name}
+                        </span>
+                        <Badge variant="secondary" className="font-mono text-xs">
+                          {countries.find((country) => country.code === selectedCountry)?.code}
+                        </Badge>
+                      </div>
+                    ) : (
+                      <span className="text-muted-foreground">Select country</span>
+                    )}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                  <Command className="w-full">
+                    <CommandInput
+                      placeholder="Search countries..."
+                      value={countrySearchQuery}
+                      onValueChange={setCountrySearchQuery}
+                    />
+                    <CommandList>
+                      <CommandEmpty>No countries found</CommandEmpty>
+                      <CommandGroup className="max-h-[300px] overflow-auto">
+                        {Array.isArray(filteredCountries) &&
+                          filteredCountries.map((country) => (
+                            <CommandItem
+                              key={country.code}
+                              value={country.code}
+                              onSelect={() => {
+                                handleCountryChange(country.code)
+                                setCountryOpen(false)
+                              }}
+                              className="flex items-center justify-between py-2"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <Check
+                                  className={cn(
+                                    "h-4 w-4 shrink-0",
+                                    selectedCountry === country.code ? "opacity-100" : "opacity-0",
+                                  )}
+                                />
+                                <span className="truncate capitalize">{country.name}</span>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0 ml-2">
+                                <Badge variant="secondary" className="font-mono text-xs">
+                                  {country.code}
+                                </Badge>
+                              </div>
+                            </CommandItem>
+                          ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            {/* Service Selection */}
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2 text-sm font-medium">Service for OTP</Label>
+              <Popover
+                open={productOpen}
+                onOpenChange={(open) => {
+                  setProductOpen(open)
+                  if (!open) setServiceSearchQuery("")
+                }}
+              >
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={productOpen}
+                    className="w-full justify-between"
+                    disabled={!selectedCountry || products.length === 0}
+                  >
+                    {!selectedCountry ? (
+                      "Select country first"
+                    ) : products.length === 0 ? (
+                      <Spinner className="h-4 w-4" />
+                    ) : selectedProduct ? (
+                      <div className="flex items-center justify-between w-full">
+                        <span className="capitalize">
+                          {products.find((p) => p.id === selectedProduct)?.name.replace(/_/g, " ")}
+                        </span>
+                        <Badge variant="secondary" className="font-mono text-xs whitespace-nowrap">
+                          {products.find((p) => p.id === selectedProduct)?.quantity || 0} avl
+                        </Badge>
+                      </div>
+                    ) : (
+                      "Select service"
+                    )}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
+                  <Command>
+                    <CommandInput
+                      placeholder="Search services..."
+                      value={serviceSearchQuery}
+                      onValueChange={setServiceSearchQuery}
+                    />
+                    <CommandList>
+                      <CommandEmpty>No service found.</CommandEmpty>
+                      <CommandGroup>
+                        {products.map((product) => (
                           <CommandItem
-                            key={country.code}
-                            value={country.code}
+                            key={product.id}
+                            value={product.id}
                             onSelect={() => {
-                              handleCountryChange(country.code)
-                              setCountryOpen(false)
+                              setSelectedProduct(product.id === selectedProduct ? "" : product.id)
+                              setProductOpen(false)
                             }}
-                            className="flex items-center justify-between py-2"
                           >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <Check
-                                className={cn(
-                                  "h-4 w-4 shrink-0",
-                                  selectedCountry === country.code ? "opacity-100" : "opacity-0",
-                                )}
-                              />
-                              <span className="truncate capitalize">{country.name}</span>
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0 ml-2">
-                              <Badge variant="secondary" className="font-mono text-xs">
-                                {country.code}
+                            <div className="flex items-center justify-between w-full min-w-0">
+                              <div className="flex items-center gap-2">
+                                <Check
+                                  className={cn(
+                                    "h-4 w-4 shrink-0",
+                                    selectedProduct === product.id ? "opacity-100" : "opacity-0",
+                                  )}
+                                />
+                                <span className="capitalize">{product.name.replace(/_/g, " ")}</span>
+                              </div>
+                              <Badge variant="secondary" className="font-mono text-xs whitespace-nowrap">
+                                {product.quantity} avl
                               </Badge>
                             </div>
                           </CommandItem>
                         ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
-          </div>
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
 
-          {/* Service Selection */}
-          <div className="space-y-2">
-            <Label className="flex items-center gap-2 text-sm font-medium">Service for OTP</Label>
-            <Popover 
-              open={productOpen} 
-              onOpenChange={(open) => {
-                setProductOpen(open)
-                if (!open) setServiceSearchQuery("")
-              }}
-            >
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  role="combobox"
-                  aria-expanded={productOpen}
-                  className="w-full justify-between"
-                  disabled={!selectedCountry || products.length === 0}
-                >
-                  {!selectedCountry ? (
-                    "Select country first"
-                  ) : products.length === 0 ? (
-                    <Spinner className="h-4 w-4" />
-                  ) : selectedProduct ? (
-                    <div className="flex items-center justify-between w-full">
-                      <span className="capitalize">
-                        {products.find((p) => p.id === selectedProduct)?.name.replace(/_/g, " ")}
-                      </span>
-                      <Badge variant="secondary" className="font-mono text-xs whitespace-nowrap">
-                        {products.find((p) => p.id === selectedProduct)?.quantity || 0} avl
-                      </Badge>
-                    </div>
-                  ) : (
-                    "Select service"
-                  )}
-                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
-                <Command>
-                  <CommandInput
-                    placeholder="Search services..."
-                    value={serviceSearchQuery}
-                    onValueChange={setServiceSearchQuery}
-                  />
-                  <CommandList>
-                    <CommandEmpty>No service found.</CommandEmpty>
-                    <CommandGroup>
-                      {products.map((product) => (
-                        <CommandItem
-                          key={product.id}
-                          value={product.id}
-                          onSelect={() => {
-                            setSelectedProduct(product.id === selectedProduct ? "" : product.id)
-                            setProductOpen(false)
-                          }}
-                        >
-                          <div className="flex items-center justify-between w-full min-w-0">
-                            <div className="flex items-center gap-2">
+            {/* Operator Selection */}
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2 text-sm font-medium">Operator</Label>
+              <Popover open={operatorOpen} onOpenChange={setOperatorOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={operatorOpen}
+                    className="w-full justify-between"
+                    disabled={!selectedProduct || operators.length === 0}
+                  >
+                    {!selectedProduct ? (
+                      "Select service first"
+                    ) : operators.length === 0 ? (
+                      <Spinner className="h-4 w-4" />
+                    ) : selectedOperatorDetails ? (
+                      <div className="flex items-center justify-between w-full">
+                        <span className="capitalize truncate">{selectedOperatorDetails.displayName}</span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Badge variant={selectedOperatorDetails.rate >= 90 ? "secondary" : "outline"} className="font-mono text-xs whitespace-nowrap">
+                            {selectedOperatorDetails.rate}%
+                          </Badge>
+                          <Badge variant="secondary" className="font-mono text-xs whitespace-nowrap">
+                            ₹{convertToINR(selectedOperatorDetails.cost)}
+                          </Badge>
+                        </div>
+                      </div>
+                    ) : (
+                      "Select provider"
+                    )}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
+                  <Command>
+                    <CommandInput placeholder="Search providers..." />
+                    <CommandList>
+                      <CommandEmpty>No provider found.</CommandEmpty>
+                      <CommandGroup className="max-h-[300px] overflow-auto">
+                        {operators.map((operator) => (
+                          <CommandItem
+                            key={operator.id}
+                            value={operator.id}
+                            onSelect={() => {
+                              setSelectedOperator(operator.id === selectedOperator ? "" : operator.id)
+                              setOperatorOpen(false)
+                            }}
+                            className="flex items-center justify-between"
+                          >
+                            <div className="flex items-center">
                               <Check
                                 className={cn(
-                                  "h-4 w-4 shrink-0",
-                                  selectedProduct === product.id ? "opacity-100" : "opacity-0",
+                                  "mr-2 h-4 w-4",
+                                  selectedOperator === operator.id ? "opacity-100" : "opacity-0",
                                 )}
                               />
-                              <span className="capitalize">{product.name.replace(/_/g, " ")}</span>
+                              <span className="capitalize truncate">{operator.displayName}</span>
                             </div>
-                            <Badge variant="secondary" className="font-mono text-xs whitespace-nowrap">
-                              {product.quantity} avl
-                            </Badge>
-                          </div>
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <Badge variant={operator.rate >= 90 ? "secondary" : "outline"} className="font-mono text-xs whitespace-nowrap">
+                                {operator.rate}%
+                              </Badge>
+                              <Badge variant="secondary" className="font-mono text-xs whitespace-nowrap">
+                                ₹{convertToINR(operator.cost)}
+                              </Badge>
+                            </div>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
           </div>
-
-          {/* Operator Selection */}
-          <div className="space-y-2">
-            <Label className="flex items-center gap-2 text-sm font-medium">Operator</Label>
-            <Popover open={operatorOpen} onOpenChange={setOperatorOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  role="combobox"
-                  aria-expanded={operatorOpen}
-                  className="w-full justify-between"
-                  disabled={!selectedProduct || operators.length === 0}
-                >
-                  {!selectedProduct ? (
-                    "Select service first"
-                  ) : operators.length === 0 ? (
-                    <Spinner className="h-4 w-4" />
-                  ) : selectedOperatorDetails ? (
-                    <div className="flex items-center justify-between w-full">
-                      <span className="capitalize truncate">{selectedOperatorDetails.displayName}</span>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <Badge variant={selectedOperatorDetails.rate >= 90 ? "secondary" : "outline"} className="font-mono text-xs whitespace-nowrap">
-                          {selectedOperatorDetails.rate}%
-                        </Badge>
-                        <Badge variant="secondary" className="font-mono text-xs whitespace-nowrap">
-                          ₹{convertToINR(selectedOperatorDetails.cost)}
-                        </Badge>
-                      </div>
-                    </div>
-                  ) : (
-                    "Select provider"
-                  )}
-                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
-                <Command>
-                  <CommandInput placeholder="Search providers..." />
-                  <CommandList>
-                    <CommandEmpty>No provider found.</CommandEmpty>
-                    <CommandGroup className="max-h-[300px] overflow-auto">
-                      {operators.map((operator) => (
-                        <CommandItem
-                          key={operator.id}
-                          value={operator.id}
-                          onSelect={() => {
-                            setSelectedOperator(operator.id === selectedOperator ? "" : operator.id)
-                            setOperatorOpen(false)
-                          }}
-                          className="flex items-center justify-between"
-                        >
-                          <div className="flex items-center">
-                            <Check
-                              className={cn(
-                                "mr-2 h-4 w-4",
-                                selectedOperator === operator.id ? "opacity-100" : "opacity-0",
-                              )}
-                            />
-                            <span className="capitalize truncate">{operator.displayName}</span>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <Badge variant={operator.rate >= 90 ? "secondary" : "outline"} className="font-mono text-xs whitespace-nowrap">
-                              {operator.rate}%
-                            </Badge>
-                            <Badge variant="secondary" className="font-mono text-xs whitespace-nowrap">
-                              ₹{convertToINR(operator.cost)}
-                            </Badge>
-                          </div>
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
-          </div>
-        </div>
+        )}
 
         <Separator />
 
         {/* Action Section */}
         <div className="space-y-4">
           {/* Get Number Button */}
-          <Button
-            onClick={handleGetNumber}
-            disabled={isLoading || isOrderCancelled || !selectedOperator}
-            className="w-full sm:w-auto"
-          >
-            {isLoading ? (
-              <div className="flex items-center justify-center gap-2">
-                <Spinner className="h-4 w-4" />
-                <span>Getting Number...</span>
-              </div>
-            ) : (
-              <div className="flex items-center justify-center gap-2">
-                <span>Get Virtual Number</span>
-                {selectedOperatorDetails && (
-                  <Badge variant="secondary" className="ml-2">
-                    ₹{convertToINR(selectedOperatorDetails.cost)}
-                  </Badge>
-                )}
-              </div>
-            )}
-          </Button>
-
-          {/* Display Number Information */}
-          {number && (
-            <Card className="mt-4">
-              <CardContent className="space-y-4 p-4">
-                <div className="flex items-center justify-between p-4 rounded-lg border">
-                  <div className="flex items-center gap-2">
-                    <Badge className="font-mono text-xs">{selectedCountry}</Badge>
-                    <span className="font-mono text-base">{number.phone}</span>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleCopyToClipboard(number.phone, setIsNumberCopied)}
-                  >
-                    {isNumberCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                  </Button>
+          {isLoading ? (
+            <Skeleton className="h-10 w-full sm:w-40" />
+          ) : (
+            <Button
+              onClick={handleGetNumber}
+              disabled={isLoading || isOrderCancelled || !selectedOperator}
+              className="w-full sm:w-auto"
+            >
+              {isLoading ? (
+                <div className="flex items-center justify-center gap-2">
+                  <Spinner className="h-4 w-4" />
+                  <span>Getting Number...</span>
                 </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="flex flex-col items-center justify-center p-2 rounded-md border">
-                    <span className="text-xs text-muted-foreground">Order ID</span>
-                    <span className="font-medium text-sm truncate">{number.id}</span>
-                  </div>
-                  {orderCreatedAt && (
-                    <div className="flex flex-col items-center justify-center p-2 rounded-md border">
-                      <span className="text-xs text-muted-foreground">Time</span>
-                      <span className="font-medium text-sm truncate">
-                        {new Date(orderCreatedAt).toLocaleTimeString('en-IN', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          second: '2-digit'
-                        })}
-                      </span>
-                    </div>
+              ) : (
+                <div className="flex items-center justify-center gap-2">
+                  <span>Get Virtual Number</span>
+                  {selectedOperatorDetails && (
+                    <Badge variant="secondary" className="ml-2">
+                      ₹{convertToINR(selectedOperatorDetails.cost)}
+                    </Badge>
                   )}
                 </div>
+              )}
+            </Button>
+          )}
 
-                {orderStatus && (
-                  <div className="flex items-center justify-center gap-2">
-                    <Badge variant={getStatusColor(orderStatus)}>{orderStatus}</Badge>
+          {/* Display Number Information */}
+          {isLoading ? (
+            <NumberDisplaySkeleton />
+          ) : (
+            number && (
+              <Card className="mt-4">
+                <CardContent className="space-y-4 p-4">
+                  <div className="flex items-center justify-between p-4 rounded-lg border">
+                    <div className="flex items-center gap-2">
+                      <Badge className="font-mono text-xs">{selectedCountry}</Badge>
+                      <span className="font-mono text-base">{number.phone}</span>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleCopyToClipboard(number.phone, setIsNumberCopied)}
+                    >
+                      {isNumberCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                    </Button>
                   </div>
-                )}
-              </CardContent>
-            </Card>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="flex flex-col items-center justify-center p-2 rounded-md border">
+                      <span className="text-xs text-muted-foreground">Order ID</span>
+                      <span className="font-medium text-sm truncate">{number.id}</span>
+                    </div>
+                    {orderCreatedAt && (
+                      <div className="flex flex-col items-center justify-center p-2 rounded-md border">
+                        <span className="text-xs text-muted-foreground">Time</span>
+                        <span className="font-medium text-sm truncate">
+                          {new Date(orderCreatedAt).toLocaleTimeString('en-IN', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit'
+                          })}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {orderStatus && (
+                    <div className="flex items-center justify-center gap-2">
+                      <Badge variant={getStatusColor(orderStatus)}>{orderStatus}</Badge>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )
           )}
 
           {/* Waiting for OTP */}

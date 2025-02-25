@@ -6,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 // import  { Hero} from "@/components/ui/animated-hero"
 
 import { FeaturesSectionWithHoverEffects } from './Features'
-import { InfiniteSliderBasic } from './InfinitSlider'
+// import { InfiniteSliderBasic } from './InfinitSlider'
 // import { Footerdemo } from './Footer'
 import { HeroDemo } from './Herodemo'
 
@@ -43,7 +43,7 @@ function Hero() {
         <Suspense fallback={<LoadingSkeleton />}>
           {/* <Hero /> */}
           <HeroDemo />
-          <InfiniteSliderBasic />
+          {/* <InfiniteSliderBasic /> */}
           <FeaturesSectionWithHoverEffects />
           
         </Suspense>
