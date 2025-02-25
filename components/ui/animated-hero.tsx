@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { MoveRight, PhoneCall, Shield, Globe, Zap, Clock, CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-
+import Link from "next/link";
 function Hero() {
   const [titleNumber, setTitleNumber] = useState(0);
   const titles = useMemo(
@@ -96,10 +96,13 @@ function Hero() {
             <Button 
               size="lg" 
               className="gap-4"
+              asChild
             >
-              <Zap className="w-5 h-5" />
-              Get Virtual Number 
-              <MoveRight className="w-4 h-4" />
+              <Link href="/dashboard">
+                <Zap className="w-5 h-5" />
+                Get Virtual Number 
+                <MoveRight className="w-4 h-4" />
+              </Link>
             </Button>
             <Button 
               size="lg" 

@@ -3,7 +3,7 @@ import { TextLoop } from '@/components/ui/text-loop';
 export function TextLoopCustomVariantsTransition() {
   return (
     <p className='inline-flex whitespace-pre-wrap text-sm'>
-      Beautiful templates for{' '}
+      Trusted by{' '}
       <TextLoop
         className='overflow-y-clip'
         transition={{
@@ -33,10 +33,10 @@ export function TextLoopCustomVariantsTransition() {
           },
         }}
       >
-        <span>Founders</span>
+        <span>Customers</span>
         <span>Developers</span>
         <span>Designers</span>
-        <span>Design Engineers</span>
+        <span>Founders</span>
       </TextLoop>
     </p>
   );
