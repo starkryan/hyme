@@ -1,14 +1,22 @@
 'use client';
 
 import GetVirtualNumber from '@/components/5sim/GetVirtualNumber';
-
+import { DashboardLoadingSkeleton } from '@/app/components/ui/loading-skeleton';
 import { toast } from 'sonner';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
 
 const Dashboard = () => {
+  const [isLoading, setIsLoading] = useState(true);
+
   useEffect(() => {
-    toast.success('Dashboard loaded!');
+    // Simulate loading time to show skeleton (remove in production)
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+      toast.success('Dashboard loaded!');
+    }, 1000);
+
+    return () => clearTimeout(timer);
   }, []);
 
   return (
@@ -20,11 +28,22 @@ const Dashboard = () => {
             Get virtual numbers for OTP verification.
           </p>
         </div>
-        <GetVirtualNumber />
+        
+        {isLoading ? (
+          // Show skeleton while component is loading
+          <div className="mt-6">
+            <div className="rounded-lg border bg-card text-card-foreground shadow">
+              <div className="p-6">
+                <DashboardLoadingSkeleton />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <GetVirtualNumber />
+        )}
       </div>
     </div>
   );
 };
-
 
 export default Dashboard;

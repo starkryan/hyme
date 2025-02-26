@@ -111,7 +111,9 @@ export default function Navbar() {
     <header className="sticky top-0 w-full z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       {/* Mobile Navigation */}
       <div className="md:hidden flex items-center justify-between p-4 border-b">
-        <span className="font-bold text-xl text-primary">OTPMaya</span>
+        <Link href="/" className="font-bold text-xl text-primary">
+          OTPMaya
+        </Link>
         <div className="flex items-center gap-4">
           {isSignedIn && <WalletSheet />}
           {isSignedIn && <UserButton afterSignOutUrl="/" />}
@@ -153,7 +155,9 @@ export default function Navbar() {
       <div className="hidden md:flex items-center justify-between p-4 border-b">
         <div className="container mx-auto flex items-center justify-between max-w-7xl">
           <nav className="flex items-center gap-6">
-            <span className="font-bold text-xl text-primary mr-8">OTPMaya</span>
+            <Link href="/" className="font-bold text-xl text-primary mr-8">
+              OTPMaya
+            </Link>
             {routes.map((route) => (
               <Link
                 key={route.href}

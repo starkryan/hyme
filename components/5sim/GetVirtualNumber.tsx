@@ -120,6 +120,8 @@ const GetVirtualNumber = () => {
   const [serviceSearchQuery, setServiceSearchQuery] = useState("")
   const [isCopyingNumber, setIsCopyingNumber] = useState(false)
   const [isCopyingOtp, setIsCopyingOtp] = useState(false)
+  const [isOrderIdCopied, setIsOrderIdCopied] = useState(false)
+  const [isSmsCodeCopied, setIsSmsCodeCopied] = useState(false)
 
   // Add this query for real-time wallet balance
   const { 
@@ -1648,17 +1650,17 @@ const GetVirtualNumber = () => {
           </div>
         </div>
       </CardHeader>
-      <CardContent className="grid gap-4 sm:gap-6 p-3 sm:p-6">
+      <CardContent className="p-3 sm:p-4 md:p-6">
         {/* Selection Section */}
         {isCountryLoading || isProductLoading ? (
           <SelectionSkeleton />
         ) : (
-          <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 md:gap-6 grid-cols-1 md:grid-cols-3">
             {/* Country Selection */}
-            <div className="space-y-1 sm:space-y-2">
-              <Label className="flex items-center gap-2 text-xs sm:text-sm font-medium">
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2 text-sm font-medium">
                 Country
-                {isCountryLoading && <Spinner className="h-3 w-3 sm:h-4 sm:w-4" />}
+                {isCountryLoading && <Spinner className="h-4 w-4" />}
               </Label>
               <Popover
                 open={countryOpen}
@@ -1672,11 +1674,11 @@ const GetVirtualNumber = () => {
                     variant="outline"
                     role="combobox"
                     aria-expanded={countryOpen}
-                    className="w-full justify-between h-9 sm:h-10 px-2 sm:px-3 text-xs sm:text-sm"
+                    className="w-full justify-between h-10 px-3 text-sm"
                     disabled={isCountryLoading}
                   >
                     {isCountryLoading ? (
-                      <Spinner className="h-3 w-3 sm:h-4 sm:w-4" />
+                      <Spinner className="h-4 w-4" />
                     ) : selectedCountry ? (
                       <div className="flex items-center justify-between w-full">
                         <span className="truncate">
@@ -1691,7 +1693,7 @@ const GetVirtualNumber = () => {
                     ) : (
                       <span className="text-muted-foreground">Select country</span>
                     )}
-                    <ChevronsUpDown className="ml-1 sm:ml-2 h-3 w-3 sm:h-4 sm:w-4 shrink-0 opacity-50" />
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
@@ -1714,12 +1716,12 @@ const GetVirtualNumber = () => {
                                 handleCountryChange(country.code)
                                 setCountryOpen(false)
                               }}
-                              className="flex items-center justify-between py-1 sm:py-2 text-xs sm:text-sm"
+                              className="flex items-center justify-between py-2 text-sm"
                             >
                               <div className="flex items-center gap-2 min-w-0">
                                 <Check
                                   className={cn(
-                                    "h-3 w-3 sm:h-4 sm:w-4 shrink-0",
+                                    "h-4 w-4 shrink-0",
                                     selectedCountry === country.prefix ? "opacity-100" : "opacity-0",
                                   )}
                                 />
@@ -1742,8 +1744,8 @@ const GetVirtualNumber = () => {
             </div>
 
             {/* Service Selection */}
-            <div className="space-y-1 sm:space-y-2">
-              <Label className="flex items-center gap-2 text-xs sm:text-sm font-medium">Service for OTP</Label>
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2 text-sm font-medium">Service for OTP</Label>
               <Popover
                 open={productOpen}
                 onOpenChange={(open) => {
@@ -1756,13 +1758,13 @@ const GetVirtualNumber = () => {
                     variant="outline"
                     role="combobox"
                     aria-expanded={productOpen}
-                    className="w-full justify-between h-9 sm:h-10 px-2 sm:px-3 text-xs sm:text-sm"
+                    className="w-full justify-between h-10 px-3 text-sm"
                     disabled={!selectedCountry || products.length === 0}
                   >
                     {!selectedCountry ? (
                       "Select country first"
                     ) : products.length === 0 ? (
-                      <Spinner className="h-3 w-3 sm:h-4 sm:w-4" />
+                      <Spinner className="h-4 w-4" />
                     ) : selectedProduct ? (
                       <div className="flex items-center justify-between w-full">
                         <span className="capitalize truncate">
@@ -1775,7 +1777,7 @@ const GetVirtualNumber = () => {
                     ) : (
                       "Select service"
                     )}
-                    <ChevronsUpDown className="ml-1 sm:ml-2 h-3 w-3 sm:h-4 sm:w-4 shrink-0 opacity-50" />
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
@@ -1823,21 +1825,21 @@ const GetVirtualNumber = () => {
             </div>
 
             {/* Operator Selection */}
-            <div className="space-y-1 sm:space-y-2">
-              <Label className="flex items-center gap-2 text-xs sm:text-sm font-medium">Operator</Label>
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2 text-sm font-medium">Operator</Label>
               <Popover open={operatorOpen} onOpenChange={setOperatorOpen}>
                 <PopoverTrigger asChild>
                   <Button
                     variant="outline"
                     role="combobox"
                     aria-expanded={operatorOpen}
-                    className="w-full justify-between h-9 sm:h-10 px-2 sm:px-3 text-xs sm:text-sm"
+                    className="w-full justify-between h-10 px-3 text-sm"
                     disabled={!selectedProduct || operators.length === 0}
                   >
                     {!selectedProduct ? (
                       "Select service first"
                     ) : operators.length === 0 ? (
-                      <Spinner className="h-3 w-3 sm:h-4 sm:w-4" />
+                      <Spinner className="h-4 w-4" />
                     ) : selectedOperatorDetails ? (
                       <div className="flex items-center justify-between w-full">
                         <span className="capitalize truncate">{selectedOperatorDetails.displayName}</span>
@@ -1853,7 +1855,7 @@ const GetVirtualNumber = () => {
                     ) : (
                       "Select provider"
                     )}
-                    <ChevronsUpDown className="ml-1 sm:ml-2 h-3 w-3 sm:h-4 sm:w-4 shrink-0 opacity-50" />
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
@@ -1900,29 +1902,29 @@ const GetVirtualNumber = () => {
           </div>
         )}
 
-        <Separator className="my-1 sm:my-2" />
+        <Separator className="my-4" />
 
         {/* Action Section */}
-        <div className="space-y-3 sm:space-y-4">
+        <div className="space-y-4">
           {/* Get Number Button */}
           {isLoading ? (
-            <Skeleton className="h-9 sm:h-10 w-full sm:w-40" />
+            <Skeleton className="h-10 w-full md:w-40" />
           ) : (
             <Button
               onClick={handleGetNumber}
               disabled={isLoading || isOrderCancelled || !selectedOperator}
-              className="w-full sm:w-auto h-9 sm:h-10 text-xs sm:text-sm"
+              className="w-full md:w-auto h-10 text-sm"
             >
               {isLoading ? (
                 <div className="flex items-center justify-center gap-2">
-                  <Spinner className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <Spinner className="h-4 w-4" />
                   <span>Getting Number...</span>
                 </div>
               ) : (
                 <div className="flex items-center justify-center gap-2">
                   <span>Get Virtual Number</span>
                   {selectedOperatorDetails && (
-                    <Badge variant="secondary" className="ml-1 sm:ml-2 text-xs">
+                    <Badge variant="secondary" className="ml-2 text-xs">
                       ₹{convertToINR(selectedOperatorDetails.cost)}
                     </Badge>
                   )}
@@ -1936,48 +1938,81 @@ const GetVirtualNumber = () => {
             <NumberDisplaySkeleton />
           ) : (
             number && (
-              <Card className="mt-2 sm:mt-4">
-                <CardContent className="space-y-3 sm:space-y-4 p-3 sm:p-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between p-2 sm:p-4 rounded-lg border gap-2 sm:gap-0">
+              <Card className="mt-4 shadow-sm">
+                <CardContent className="space-y-4 p-4">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between p-3 md:p-4 rounded-lg border gap-3 md:gap-0 bg-muted/10">
                     <div className="flex items-center gap-2">
-                      <Badge className="font-mono text-xs">{selectedCountry}</Badge>
-                      <span className="font-mono text-sm sm:text-base break-all">{number.phone}</span>
+                      <span className="font-mono text-base md:text-lg break-all">{number.phone}</span>
                     </div>
-                    <div className="flex items-center gap-2 self-end sm:self-auto">
-                      
+                    <div className="flex items-center gap-2 self-end md:self-auto">
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={refreshComponent}
+                              disabled={isLoading}
+                              className="h-9 w-9"
+                            >
+                              <RefreshCw className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom">
+                            <p>Refresh order status</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                       <Button
                         variant="ghost"
                         size="icon"
                         onClick={() => handleCopyToClipboard(number.phone, setIsNumberCopied)}
-                        className="h-8 w-8"
+                        className="h-9 w-9"
                       >
-                        {isNumberCopied ? <Check className="h-3 w-3 sm:h-4 sm:w-4" /> : <Copy className="h-3 w-3 sm:h-4 sm:w-4" />}
+                        {isNumberCopied ? (
+                          <Check className="h-4 w-4 text-green-500" />
+                        ) : (
+                          <Copy className="h-4 w-4" />
+                        )}
                       </Button>
                     </div>
                   </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="flex flex-col items-center justify-center p-2 rounded-md border">
-                      <span className="text-xs text-muted-foreground">Order ID</span>
-                      <span className="font-medium text-xs sm:text-sm truncate">{number.id}</span>
-                    </div>
-                    {orderCreatedAt && (
-                      <div className="flex flex-col items-center justify-center p-2 rounded-md border">
-                        <span className="text-xs text-muted-foreground">Time</span>
-                        <span className="font-medium text-xs sm:text-sm truncate">
-                          {new Date(orderCreatedAt).toLocaleTimeString('en-IN', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            second: '2-digit'
-                          })}
-                        </span>
+              
+                  {/* Order Details */}
+                  {orderCreatedAt && (
+                    <div className="flex flex-col md:flex-row md:items-center justify-between p-3 md:p-4 rounded-lg border gap-3 md:gap-4 bg-muted/10">
+                      <div className="grid grid-cols-2 md:flex md:items-center gap-3 md:gap-4 text-sm">
+                        <div>
+                          <p className="text-xs text-muted-foreground">Order ID</p>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-xs md:text-sm">{orderId}</span>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleCopyToClipboard(String(orderId), setIsOrderIdCopied)}
+                              className="h-6 w-6"
+                            >
+                              {isOrderIdCopied ? (
+                                <Check className="h-3 w-3 text-green-500" />
+                              ) : (
+                                <Copy className="h-3 w-3" />
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                        
+                        <div>
+                          <p className="text-xs text-muted-foreground">Created</p>
+                          <p className="font-mono text-xs md:text-sm">
+                            {new Date(orderCreatedAt).toLocaleTimeString()}
+                          </p>
+                        </div>
+                        
+                        <div className="col-span-2 md:col-span-1">
+                          <p className="text-xs text-muted-foreground">Status</p>
+                          <Badge variant={getStatusColor(orderStatus)}>{orderStatus}</Badge>
+                        </div>
                       </div>
-                    )}
-                  </div>
-
-                  {orderStatus && (
-                    <div className="flex items-center justify-center gap-2">
-                      <Badge variant={getStatusColor(orderStatus)}>{orderStatus}</Badge>
                     </div>
                   )}
                 </CardContent>
@@ -1987,17 +2022,17 @@ const GetVirtualNumber = () => {
 
           {/* Waiting for OTP */}
           {(isCheckingSms || isRetrying) && !smsCode && (
-            <Card>
-              <CardContent className="space-y-2 sm:space-y-3 p-3 sm:p-4">
+            <Card className="shadow-sm">
+              <CardContent className="space-y-3 p-4">
                 <div className="flex items-center justify-center gap-2">
-                  <Spinner className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span className="text-xs sm:text-sm font-medium">
+                  <Spinner className="h-4 w-4" />
+                  <span className="text-sm font-medium">
                     {isRetrying ? `Checking for SMS (${retryAttempts + 1}/${maxRetryAttempts})` : "Waiting for OTP..."}
                   </span>
                 </div>
                 {isTimeoutActive && timeLeft !== null && otpTimeout !== null && (
-                  <div className="space-y-1 sm:space-y-2">
-                    <Progress value={((otpTimeout - timeLeft) / otpTimeout) * 100} className="h-1 sm:h-2" />
+                  <div className="space-y-2">
+                    <Progress value={((otpTimeout - timeLeft) / otpTimeout) * 100} className="h-2" />
                     <p className="text-xs text-center text-muted-foreground">
                       Expires in: {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, "0")}
                     </p>
@@ -2009,43 +2044,36 @@ const GetVirtualNumber = () => {
 
           {/* Display SMS Code */}
           {smsCode && (
-            <Card>
-              <CardContent className="space-y-2 sm:space-y-3 p-3 sm:p-4">
-                <div className="flex items-center justify-between rounded-md border p-2 sm:p-3">
+            <Card className="shadow-sm">
+              <CardContent className="space-y-3 p-4">
+                <div className="flex flex-col md:flex-row md:items-center justify-between rounded-md border p-3 md:p-4 gap-3 md:gap-0 bg-muted/10">
                   <div className="flex-grow flex items-center gap-2">
                     <Badge variant="secondary" className="text-xs font-medium">
                       OTP Code
                     </Badge>
-                    <span className="text-base sm:text-lg font-medium tracking-wider">{smsCode}</span>
+                    <span className="text-lg md:text-xl font-medium tracking-wider">{smsCode}</span>
                   </div>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleCopyToClipboard(smsCode, setIsOtpCopied)}
-                          disabled={isOtpCopied}
-                          className="h-7 w-7 sm:h-8 sm:w-8"
-                        >
-                          {isOtpCopied ? <Check className="h-3 w-3 sm:h-4 sm:w-4" /> : <Copy className="h-3 w-3 sm:h-4 sm:w-4" />}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom">
-                        <p>Copy OTP to clipboard</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleCopyToClipboard(smsCode, setIsSmsCodeCopied)}
+                    className="self-end md:self-auto"
+                  >
+                    <div className="flex items-center gap-1">
+                      {isSmsCodeCopied ? (
+                        <>
+                          <Check className="h-4 w-4 text-green-500" />
+                          <span className="text-xs text-green-500">Copied</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-4 w-4" />
+                          <span className="text-xs">Copy</span>
+                        </>
+                      )}
+                    </div>
+                  </Button>
                 </div>
-
-                {fullSms && (
-                  <div className="rounded-md border p-2 sm:p-3">
-                    <Badge variant="outline" className="text-xs mb-1 sm:mb-2">
-                      Full Message
-                    </Badge>
-                    <p className="text-xs sm:text-sm text-muted-foreground break-words">{fullSms}</p>
-                  </div>
-                )}
               </CardContent>
             </Card>
           )}
@@ -2062,7 +2090,7 @@ const GetVirtualNumber = () => {
 
           {/* Action Buttons */}
           {number && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -2070,14 +2098,14 @@ const GetVirtualNumber = () => {
                       variant="outline"
                       onClick={handleBanNumber}
                       disabled={isLoading || isOrderCancelled || isOrderFinished}
-                      className="w-full h-9 sm:h-10 text-xs sm:text-sm"
+                      className="w-full h-10 text-sm"
                     >
                       {isLoading ? (
-                        <Spinner className="h-3 w-3 sm:h-4 sm:w-4" />
+                        <Spinner className="h-4 w-4" />
                       ) : (
-                        <div className="flex items-center justify-center gap-1 sm:gap-2">
-                          <Ban className="h-3 w-3 sm:h-4 sm:w-4" />
-                          <span>Ban</span>
+                        <div className="flex items-center justify-center gap-2">
+                          <Ban className="h-4 w-4" />
+                          <span>Ban Number</span>
                         </div>
                       )}
                     </Button>
@@ -2095,14 +2123,14 @@ const GetVirtualNumber = () => {
                       variant="outline"
                       onClick={handleCancelOrder}
                       disabled={isLoading || isOrderCancelled || isOrderFinished}
-                      className="w-full h-9 sm:h-10 text-xs sm:text-sm"
+                      className="w-full h-10 text-sm"
                     >
                       {isLoading ? (
-                        <Spinner className="h-3 w-3 sm:h-4 sm:w-4" />
+                        <Spinner className="h-4 w-4" />
                       ) : (
-                        <div className="flex items-center justify-center gap-1 sm:gap-2">
-                          <XCircle className="h-3 w-3 sm:h-4 sm:w-4" />
-                          <span>Cancel</span>
+                        <div className="flex items-center justify-center gap-2">
+                          <XCircle className="h-4 w-4" />
+                          <span>Cancel Order</span>
                         </div>
                       )}
                     </Button>
@@ -2112,29 +2140,40 @@ const GetVirtualNumber = () => {
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
-            </div>
-          )}
 
-          {/* Finish Button */}
-          {smsCode && (
-            <Button
-              variant="default"
-              onClick={handleFinishOrder}
-              disabled={isLoading || isOrderCancelled || isOrderFinished}
-              className="w-full h-9 sm:h-10 text-xs sm:text-sm"
-            >
-              {isLoading ? (
-                <div className="flex items-center justify-center gap-1 sm:gap-2">
-                  <Spinner className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span>Finishing...</span>
-                </div>
+              {/* Finish button in the third column */}
+              {isOrderFinished ? (
+                <Button 
+                  variant="outline" 
+                  disabled 
+                  className="w-full h-10 text-sm"
+                >
+                  <div className="flex items-center justify-center gap-2">
+                    <CircleCheck className="h-4 w-4" />
+                    <span>Order Completed</span>
+                  </div>
+                </Button>
               ) : (
-                <div className="flex items-center justify-center gap-1 sm:gap-2">
-                  <CircleCheck className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span>Complete Order</span>
-                </div>
+                <Button
+                  variant="default"
+                  onClick={handleFinishOrder}
+                  disabled={isLoading || isOrderCancelled || isOrderFinished}
+                  className="w-full h-10 text-sm"
+                >
+                  {isLoading ? (
+                    <div className="flex items-center justify-center gap-2">
+                      <Spinner className="h-4 w-4" />
+                      <span>Finishing...</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center gap-2">
+                      <CircleCheck className="h-4 w-4" />
+                      <span>Complete Order</span>
+                    </div>
+                  )}
+                </Button>
               )}
-            </Button>
+            </div>
           )}
         </div>
       </CardContent>

@@ -9,11 +9,24 @@ const isPublicRoute = createRouteMatcher([
   '/api/webhook'
 ])
 
+// Routes that should always redirect to dashboard if logged in
+const shouldRedirectToDashboard = createRouteMatcher([
+  '/',
+  '/signin(.*)',
+  '/signup(.*)'
+])
+
 export default clerkMiddleware(async (auth, req) => {
   const { userId } = await auth()
   
+  // Redirect unauthenticated users trying to access protected routes to sign in
   if (!isPublicRoute(req) && !userId) {
     return NextResponse.redirect(new URL('/signin', req.url))
+  }
+  
+  // Redirect authenticated users away from public routes like sign-in and sign-up to dashboard
+  if (shouldRedirectToDashboard(req) && userId) {
+    return NextResponse.redirect(new URL('/dashboard', req.url))
   }
 })
 

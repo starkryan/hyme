@@ -10,6 +10,8 @@ import { Footerdemo } from "@/app/components/Footer";
 import { Providers } from '@/app/providers'
 import { Skeleton } from "@/components/ui/skeleton"
 import { Suspense } from 'react'
+import { dark} from '@clerk/themes'
+
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -62,7 +64,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <ClerkProvider>
+    <ClerkProvider appearance={{ baseTheme: dark }}>
       <html lang="en" className="h-full">
         <body className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-background`}>
           <Providers>
