@@ -519,166 +519,30 @@ export const getVirtualNumber = async (
     const normalizedCountry = normalizeCountryInput(country);
     console.log(`Getting virtual number for ${service} in ${normalizedCountry} with operator ${operator}`);
 
-    // First check if there are any pending orders
-    try {
-      const response = await fetch(`${API_URL}/user/orders`, {
-        headers: {
-          'Accept': 'application/json',
-          'Authorization': `Bearer ${API_KEY}`
-        }
-      });
+    // Use our API route instead of direct API calls
+    const url = `/api/purchase-number?country=${normalizedCountry}&service=${service}&operator=${operator}`;
+    console.log(`API URL: ${url}`);
 
-      if (response.ok) {
-        const orders = await response.json();
-        console.log('Current orders:', orders);
-        
-        // Only consider orders from the last hour as pending
-        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-        const pendingOrders = orders.filter((order: any) => 
-          order.status === 'PENDING' && 
-          new Date(order.created_at) > oneHourAgo
-        );
-        
-        if (pendingOrders.length > 0) {
-          console.log('Found pending orders:', pendingOrders);
-          return { error: 'You have pending orders. Please complete or cancel them before purchasing a new number.', created_at: new Date().toISOString() };
-        }
-      }
-    } catch (error) {
-      console.warn('Failed to check pending orders:', error);
-    }
-
-    // Check if the service is available with the specified operator
-    const productsUrl = `${API_URL}/guest/products/${normalizedCountry}/${operator}`;
-    console.log('Checking product availability:', productsUrl);
-
-    const productsResponse = await fetch(productsUrl, {
+    const response = await fetch(url, {
       headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json'
+        'Accept': 'application/json'
       }
     });
-
-    if (!productsResponse.ok) {
-      const errorData = await productsResponse.json().catch(() => ({}));
-      console.error('Products API Error:', {
-        status: productsResponse.status,
-        statusText: productsResponse.statusText,
-        error: errorData
-      });
-      return { error: `Operator ${operator} is not available in ${country}`, created_at: new Date().toISOString() };
-    }
-
-    const products = await productsResponse.json();
-    const serviceInfo = products[service];
-
-    if (!serviceInfo) {
-      return { error: `Service "${service}" is not available with operator ${operator} in ${country}`, created_at: new Date().toISOString() };
-    }
-
-    if (serviceInfo.Qty === 0) {
-      return { error: `No numbers available for ${service} with operator ${operator} in ${country}`, created_at: new Date().toISOString() };
-    }
-
-    // Check user balance
-    try {
-      const balanceResponse = await fetch(`${API_URL}/user/profile`, {
-        headers: {
-          'Accept': 'application/json',
-          'Authorization': `Bearer ${API_KEY}`
-        }
-      });
-
-      if (balanceResponse.ok) {
-        const balanceData = await balanceResponse.json();
-        console.log('User balance:', balanceData.balance, 'Service price:', serviceInfo.Price);
-        
-        // Convert both to numbers and compare with a small buffer for fees
-        const balance = Number(balanceData.balance);
-        const price = Number(serviceInfo.Price);
-        
-        if (isNaN(balance) || isNaN(price)) {
-          console.error('Invalid balance or price:', { balance, price });
-          return { error: 'Invalid balance or price values', created_at: new Date().toISOString() };
-        }
-
-        if (balance < price) {
-          return { 
-            error: `Insufficient balance. Service cost is ${price} but your balance is ${balance}`,
-            created_at: new Date().toISOString()
-          };
-        }
-      } else {
-        console.error('Balance check failed:', await balanceResponse.text());
-      }
-    } catch (error) {
-      console.error('Failed to check balance against service price:', error);
-    }
-
-    // Now purchase the number
-    const purchaseUrl = `${API_URL}/user/buy/activation/${normalizedCountry}/${operator}/${service}`;
-    console.log('Purchasing number:', purchaseUrl);
-
-    const purchaseResponse = await fetch(purchaseUrl, {
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_KEY}`
-      }
-    });
-
-    // Log the full purchase response for debugging
-    console.log('Purchase Response:', {
-      status: purchaseResponse.status,
-      statusText: purchaseResponse.statusText,
-      headers: Object.fromEntries(purchaseResponse.headers.entries())
-    });
-
-    if (!purchaseResponse.ok) {
-      let errorData;
-      try {
-        errorData = await purchaseResponse.json();
-      } catch (e) {
-        errorData = { message: purchaseResponse.statusText };
-      }
-
-      console.error('Purchase API Error:', {
-        status: purchaseResponse.status,
-        statusText: purchaseResponse.statusText,
-        error: errorData
-      });
-
-      // Handle specific error cases
-      if (purchaseResponse.status === 400) {
-        const message = errorData.message || '';
-        if (message.includes('no free phones')) {
-          return { error: `No numbers available for ${service} with ${operator}. Please try another operator or service.`, created_at: new Date().toISOString() };
-        } else if (message.includes('no product')) {
-          return { error: `Service "${service}" is not supported with operator ${operator} in ${country}`, created_at: new Date().toISOString() };
-        } else if (message.includes('no country')) {
-          return { error: `Country "${country}" is not supported`, created_at: new Date().toISOString() };
-        } else if (message.includes('not enough user balance')) {
-          return { error: 'Insufficient balance. Please add funds to your wallet.', created_at: new Date().toISOString() };
-        } else if (message.includes('bad operator')) {
-          return { error: `Invalid operator: ${operator}. Please choose from the available operators.`, created_at: new Date().toISOString() };
-        } else if (message.includes('pending activation')) {
-          return { error: 'You have a pending activation. Please complete or cancel it before purchasing a new number.', created_at: new Date().toISOString() };
-        }
-      }
-
-      return { 
-        error: errorData.message || 'Failed to purchase virtual number',
-        created_at: new Date().toISOString() 
-      };
-    }
 
     let data;
     try {
-      data = await purchaseResponse.json();
+      data = await response.json();
       console.log('Purchase response data:', data);
     } catch (e) {
       console.error('Error parsing purchase response:', e);
       return { error: 'Invalid response from server', created_at: new Date().toISOString() };
+    }
+
+    if (!response.ok) {
+      return { 
+        error: data.error || 'Failed to purchase virtual number', 
+        created_at: data.created_at || new Date().toISOString() 
+      };
     }
 
     if (!data || !data.phone) {
@@ -688,8 +552,8 @@ export const getVirtualNumber = async (
 
     return {
       phone: data.phone,
-      id: data.id.toString(),
-      created_at: new Date().toISOString()
+      id: data.id,
+      created_at: data.created_at
     };
   } catch (error) {
     console.error('Error getting virtual number:', error);
@@ -702,9 +566,10 @@ export const getVirtualNumber = async (
 
 export const getSmsCode = async (id: string): Promise<OrderResponse | undefined> => {
   try {
-    const response = await fetch(`${API_URL}/user/check/${id}`, {
+    // Use our API route instead of direct API call
+    const url = `/api/check-sms?id=${id}`;
+    const response = await fetch(url, {
       headers: {
-        'Authorization': `Bearer ${API_KEY}`,
         'Accept': 'application/json'
       }
     });
@@ -715,31 +580,7 @@ export const getSmsCode = async (id: string): Promise<OrderResponse | undefined>
 
     const data = await response.json();
     
-    // Check if SMS is received
-    if (data.sms && data.sms.length > 0) {
-      data.status = OrderStatus.RECEIVED;
-      return data;
-    }
-    
-    // Check for timeouts if we have created_at
-    if (data.created_at) {
-      const createdAt = new Date(data.created_at);
-      const now = new Date();
-      const timeDiffSeconds = (now.getTime() - createdAt.getTime()) / 1000;
-      
-      // No SMS timeout after 5 minutes (300 seconds)
-      if (timeDiffSeconds > 300) {
-        data.status = OrderStatus.TIMEOUT;
-        return data;
-      }
-      
-      // Maximum order timeout after 15 minutes (900 seconds)
-      if (timeDiffSeconds > 900) {
-        data.status = OrderStatus.TIMEOUT;
-        return data;
-      }
-    }
-    
+    // Status handling is now done in the API route
     return data;
   } catch (error: any) {
     console.error('Failed to get SMS code:', error);
