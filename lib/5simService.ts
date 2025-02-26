@@ -590,7 +590,22 @@ export const getSmsCode = async (id: string): Promise<OrderResponse | undefined>
 
 export const reactivateOrder = async (orderId: number): Promise<OrderResponse | undefined> => {
   try {
-    return await handleApiResponse<OrderResponse>(`/user/reactivate/${orderId}`, 'get');
+    console.log(`Reactivating order: ${orderId}`);
+    
+    // Use our API route instead of direct API call
+    const url = `/api/reactivate-order?id=${orderId}`;
+    const response = await fetch(url, {
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data;
   } catch (error: any) {
     console.error('Failed to reactivate order:', error);
     throw error;
@@ -599,7 +614,22 @@ export const reactivateOrder = async (orderId: number): Promise<OrderResponse | 
 
 export const getBalance = async (): Promise<BalanceResponse | undefined> => {
   try {
-    return await handleApiResponse<BalanceResponse>('/user/profile', 'get');
+    console.log('Fetching user balance');
+    
+    // Use our API route instead of direct API call
+    const url = `/api/user-balance`;
+    const response = await fetch(url, {
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data;
   } catch (error: any) {
     console.error('Failed to get balance:', error);
     return undefined;
@@ -608,7 +638,22 @@ export const getBalance = async (): Promise<BalanceResponse | undefined> => {
 
 export const checkSmsMessages = async (orderId: number): Promise<SmsInboxResponse | undefined> => {
   try {
-    return await handleApiResponse<SmsInboxResponse>(`/user/sms/inbox/${orderId}`, 'get');
+    console.log(`Checking SMS inbox for order: ${orderId}`);
+    
+    // Use our API route instead of direct API call
+    const url = `/api/check-sms-messages?id=${orderId}`;
+    const response = await fetch(url, {
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data;
   } catch (error: any) {
     console.error('Failed to retrieve SMS messages:', error);
     return undefined;
@@ -618,7 +663,21 @@ export const checkSmsMessages = async (orderId: number): Promise<SmsInboxRespons
 export const cancelOrder = async (orderId: number): Promise<OrderResponse | undefined> => {
   try {
     console.log(`Cancelling order: ${orderId}`);
-    return await handleApiResponse<OrderResponse>(`/user/cancel/${orderId}`, 'get');
+    
+    // Use our API route instead of direct API call
+    const url = `/api/cancel-order?id=${orderId}`;
+    const response = await fetch(url, {
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data;
   } catch (error: any) {
     console.error('Failed to cancel order:', error);
     return undefined;
@@ -627,41 +686,84 @@ export const cancelOrder = async (orderId: number): Promise<OrderResponse | unde
 
 export const getNotifications = async (lang: 'ru' | 'en'): Promise<string | undefined> => {
   try {
-    const response = await api.get(`/guest/flash/${lang}`);
+    console.log(`Fetching notifications for language: ${lang}`);
+    
+    // Use our API route instead of direct API call
+    const url = `/api/notifications?lang=${lang}`;
+    const response = await fetch(url, {
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
 
-    if (!response.data) {
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    if (!data) {
       throw new Error('No notification data received');
     }
 
-    console.log('API Response:', response.data);
+    console.log('API Response:', data);
 
-    return response.data.text;
+    return data.text;
   } catch (error: any) {
-    handleAxiosError(error, 'Failed to get notifications');
+    console.error('Failed to get notifications:', error);
     return undefined;
   }
 };
 
 export const getVendorStatistics = async (): Promise<any | undefined> => {
   try {
-    const response = await api.get(`/user/vendor`);
+    console.log('Fetching vendor statistics');
+    
+    // Use our API route instead of direct API call
+    const url = `/api/vendor-statistics`;
+    const response = await fetch(url, {
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
 
-    if (!response.data) {
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    if (!data) {
       throw new Error('No vendor data received');
     }
 
-    console.log('API Response:', response.data);
+    console.log('API Response:', data);
 
-    return response.data;
+    return data;
   } catch (error: any) {
-    handleAxiosError(error, 'Failed to get vendor statistics');
+    console.error('Failed to get vendor statistics:', error);
     return undefined;
   }
 };
 
 export const finishOrder = async (orderId: number): Promise<OrderResponse | undefined> => {
   try {
-    return await handleApiResponse<OrderResponse>(`/user/finish/${orderId}`, 'get');
+    console.log(`Finishing order: ${orderId}`);
+    
+    // Use our API route instead of direct API call
+    const url = `/api/finish-order?id=${orderId}`;
+    const response = await fetch(url, {
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data;
   } catch (error: any) {
     console.error('Failed to finish order:', error);
     return undefined;
@@ -670,7 +772,22 @@ export const finishOrder = async (orderId: number): Promise<OrderResponse | unde
 
 export const banOrder = async (orderId: number): Promise<OrderResponse | undefined> => {
   try {
-    return await handleApiResponse<OrderResponse>(`/user/ban/${orderId}`, 'get');
+    console.log(`Banning order: ${orderId}`);
+    
+    // Use our API route instead of direct API call
+    const url = `/api/ban-order?id=${orderId}`;
+    const response = await fetch(url, {
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data;
   } catch (error: any) {
     console.error('Failed to ban order:', error);
     return undefined;
