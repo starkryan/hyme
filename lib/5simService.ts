@@ -325,7 +325,8 @@ export const getProducts = async (country: string): Promise<{ products: Product[
     const normalizedCountry = normalizeCountryInput(country);
     console.log(`Fetching products for country: ${country} (normalized: ${normalizedCountry})`);
 
-    const url = `https://5sim.net/v1/guest/products/${normalizedCountry}/any`;
+    // Use our API route instead of direct API call
+    const url = `/api/products?country=${normalizedCountry}`;
     console.log(`API URL: ${url}`);
 
     const response = await fetch(url, {
@@ -381,94 +382,37 @@ export const getOperators = async (
     const normalizedCountry = normalizeCountryInput(country);
     console.log(`Getting operators for ${service} in ${normalizedCountry}`);
 
-    // First get the country data to find available operators
-    const response = await fetch(`${API_URL}/guest/countries`);
+    // Use our API route instead of direct API calls
+    const url = `/api/operators?country=${normalizedCountry}&service=${service}`;
+    console.log('Fetching operators from:', url);
+
+    const response = await fetch(url, {
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+
     if (!response.ok) {
-      throw new Error('Failed to fetch country data');
-    }
-
-    const countriesData = await response.json();
-    console.log('Countries data:', countriesData);
-
-    // Find the specific country data
-    const countryData = countriesData[normalizedCountry];
-    if (!countryData) {
-      throw new Error(`Country ${country} not found`);
-    }
-
-    // Initialize operators array
-    const operators: OperatorInfo[] = [];
-
-    // Parse operators from country data
-    for (const [key, value] of Object.entries(countryData)) {
-      // Check if this is an operator entry (has activation property)
-      if (typeof value === 'object' && value !== null && 'activation' in value) {
-        const operatorId = key;
-        
-        // Format operator name for display - just use the number after 'virtual'
-        const displayName = operatorId.match(/virtual(\d+)/)?.[1] || operatorId;
-
-        // Now get the prices for this operator
-        const pricesUrl = `${API_URL}/guest/products/${normalizedCountry}/${operatorId}`;
-        console.log('Fetching prices for operator:', pricesUrl);
-
-        const pricesResponse = await fetch(pricesUrl);
-        if (pricesResponse.ok) {
-          const pricesData = await pricesResponse.json();
-          const serviceData = pricesData[service];
-
-          if (serviceData && serviceData.Qty > 0) {
-            operators.push({
-              id: operatorId,
-              name: operatorId,
-              displayName: `Operator ${displayName}`,
-              cost: serviceData.Price,
-              count: serviceData.Qty,
-              rate: 85 // Standard success rate for specific operators
-            });
-          }
-        }
+      if (response.status === 404) {
+        return { 
+          operators: [],
+          error: `No operators available for ${service} in ${country}`
+        };
       }
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    // Also check 'any' operator availability
-    const anyUrl = `${API_URL}/guest/products/${normalizedCountry}/any`;
-    const anyResponse = await fetch(anyUrl);
+    const data = await response.json();
+    console.log('Operators API Response:', data);
 
-    if (anyResponse.ok) {
-      const anyData = await anyResponse.json();
-      if (anyData && anyData[service] && anyData[service].Qty > 0) {
-        operators.unshift({
-          id: 'any',
-          name: 'any',
-          displayName: 'Any Operator',
-          cost: anyData[service].Price,
-          count: anyData[service].Qty,
-          rate: 90 // Higher success rate for 'any' operator
-        });
-      }
-    }
-
-    // Log the operators we found
-    console.log('Found operators:', operators);
-
-    if (operators.length === 0) {
-      console.log('No operators found with available numbers');
+    if (!data.operators || data.operators.length === 0) {
       return {
         operators: [],
         error: `No operators available for ${service} in ${country}`
       };
     }
 
-    // Sort operators by availability and price (keeping 'any' first)
-    operators.sort((a, b) => {
-      if (a.name === 'any') return -1;
-      if (b.name === 'any') return 1;
-      if (a.count === b.count) return a.cost - b.cost;
-      return b.count - a.count;
-    });
-
-    return { operators };
+    return { operators: data.operators };
 
   } catch (error) {
     console.error('Error getting operators:', error);
