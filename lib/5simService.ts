@@ -256,9 +256,10 @@ interface OperatorPricing {
 // API functions
 export const getCountries = async () => {
   try {
-    console.log('Fetching countries from:', `${API_URL}/guest/countries`);
+    console.log('Fetching countries from API route');
     
-    const response = await axios.get(`${API_URL}/guest/countries`, {
+    // Use relative URL to our own API route instead of external API
+    const response = await axios.get('/api/countries', {
       headers: {
         'Accept': 'application/json'
       }
