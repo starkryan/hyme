@@ -16,7 +16,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    console.log(`Server-side checking SMS inbox for order ID: ${id}`);
+    console.log(`Server-side checking SMS messages for order ID: ${id}`);
     
     const response = await axios.get(`${API_URL}/user/sms/inbox/${id}`, {
       headers: {

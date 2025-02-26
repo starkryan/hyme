@@ -34,7 +34,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const normalizedCountry = normalizeCountryInput(country);
     console.log(`Server-side getting operators for ${service} in ${normalizedCountry}`);
 
-    // First get the country data to find available operators
+    // First fetch countries to validate the country code
+    console.log('Fetching countries for validation');
     const response = await axios.get(`${API_URL}/guest/countries`, {
       headers: {
         'Accept': 'application/json'

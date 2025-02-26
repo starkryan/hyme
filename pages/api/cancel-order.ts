@@ -40,6 +40,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       status: error.response?.status
     });
 
+    // Specific handling for 400 errors (likely SMS already received or order in final state)
+    if (error.response?.status === 400) {
+      const errorMessage = error.response?.data?.message || 
+                          'Order cannot be cancelled, possibly because SMS was already received';
+      
+      return res.status(400).json({ 
+        error: 'Order cannot be cancelled',
+        details: errorMessage,
+        reason: 'SMS_RECEIVED'
+      });
+    }
+
     return res.status(error.response?.status || 500).json({ 
       error: 'Failed to cancel order',
       details: error.message || 'Unknown error'

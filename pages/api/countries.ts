@@ -9,7 +9,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    console.log('Server-side fetching countries from:', `${API_URL}/guest/countries`);
+    console.log('Server-side fetching countries');
     
     const response = await axios.get(`${API_URL}/guest/countries`, {
       headers: {

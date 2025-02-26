@@ -111,14 +111,6 @@ export const getWalletBalance = async (
 // Enhanced version that also cleans up stuck transactions
 export const getUserBalance = async (userId: string): Promise<WalletBalance | null> => {
   try {
-    // Check for stuck transactions first
-    try {
-      await cleanupStuckTransactions(userId);
-    } catch (cleanupError) {
-      console.error("Error cleaning up stuck transactions:", cleanupError);
-      // Continue even if cleanup fails - don't prevent the user from seeing their balance
-    }
-
     // Then get the updated balance
     const { data, error } = await supabase
       .from('wallet_balances')
@@ -701,91 +693,95 @@ export const handleSuccessfulOTP = async (
 };
 
 // Function to clean up stuck transactions - update to not use transactions
-export async function cleanupStuckTransactions(
-  userId: string
-): Promise<void> {
+// Removing this function as it's not needed
+// export async function cleanupStuckTransactions() {...}
+
+// Update handleVirtualNumberRefund to use correct status values
+export const handleVirtualNumberRefund = async (
+  userId: string,
+  transactionId: string,
+  reason: 'CANCELED' | 'TIMEOUT' | 'BANNED'
+): Promise<void> => {
   try {
-    console.log(`Starting cleanup of stuck transactions for user ${userId}`);
+    console.log(`[handleVirtualNumberRefund] Processing refund for ${reason} transaction ${transactionId} for user ${userId}`)
     
-    // 1. Get all pending transactions older than 15 minutes
-    const { data: pendingTransactions, error: fetchError } = await supabase
+    // Check if the transaction exists and get its details
+    const { data: transaction, error: transactionError } = await supabase
       .from('transactions')
       .select('*')
-      .eq('user_id', userId)
-      .eq('status', 'PENDING')
-      .eq('type', 'DEBIT')
-      .lt('created_at', new Date(Date.now() - 15 * 60 * 1000).toISOString());
-
-    if (fetchError) {
-      console.error('Error fetching pending transactions:', fetchError);
-      throw fetchError;
+      .eq('id', transactionId)
+      .single()
+      
+    if (transactionError) {
+      console.error('Error fetching transaction during refund:', transactionError)
+      throw new Error('Transaction not found for refund')
     }
     
-    console.log(`Found ${pendingTransactions?.length || 0} pending transactions older than 15 minutes`);
-    
-    if (!pendingTransactions || pendingTransactions.length === 0) {
-      console.log('No stuck transactions found, checking for completed transactions with no refunds');
-      
-      // Also check for completed transactions with service names that might be canceled
-      const { data: completedTransactions, error: completedError } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('status', 'COMPLETED')
-        .eq('type', 'DEBIT')
-        .lt('created_at', new Date(Date.now() - 60 * 60 * 1000).toISOString()) // Older than 1 hour
-        .limit(10);
+    if (!transaction) {
+      console.error(`Transaction not found for refund: ${transactionId}`)
+      throw new Error('Transaction not found for refund')
+    }
+
+    // IMPORTANT: Check if there was an SMS received for this order
+    // If yes, we should not refund as the service was already delivered
+    if (transaction.order_id) {
+      const { data: vnTransactions, error: vnError } = await supabase
+        .from('virtual_number_transactions')
+        .select('status')
+        .eq('order_id', transaction.order_id)
+        .single();
         
-      if (completedError) {
-        console.error('Error fetching completed transactions:', completedError);
-      } else if (completedTransactions && completedTransactions.length > 0) {
-        console.log(`Found ${completedTransactions.length} completed transactions to check for refunds`);
-        
-        // For each completed transaction, check if there's a corresponding refund
-        for (const transaction of completedTransactions) {
-          try {
-            // Check if there's a corresponding refund transaction
-            const { data: refunds, error: refundError } = await supabase
-              .from('transactions')
-              .select('*')
-              .eq('user_id', userId)
-              .eq('type', 'CREDIT')
-              .eq('order_id', transaction.order_id)
-              .ilike('reference_id', '%REFUND%');
-              
-            if (refundError) {
-              console.error(`Error checking refunds for transaction ${transaction.id}:`, refundError);
-              continue;
-            }
-            
-            if (!refunds || refunds.length === 0) {
-              console.log(`No refund found for completed transaction ${transaction.id}, checking order status`);
-              
-              // Try to check the order status to see if it needs a refund
-              try {
-                if (transaction.order_id) {
-                  // Make an API call to check the current status of this order
-                  // This is optional if you have a way to check the 5sim order status
-                  // If not, you can skip this part
-                  
-                  // If the order is found to be CANCELED, BANNED, or TIMEOUT, process a refund
-                  console.log(`Will create a refund for transaction ${transaction.id} with order ${transaction.order_id}`);
-                }
-              } catch (orderCheckError) {
-                console.error(`Error checking order status for transaction ${transaction.id}:`, orderCheckError);
-              }
-            } else {
-              console.log(`Found ${refunds.length} refunds for transaction ${transaction.id}, no action needed`);
-            }
-          } catch (transactionError) {
-            console.error(`Error processing completed transaction ${transaction.id}:`, transactionError);
-          }
-        }
+      if (!vnError && vnTransactions && 
+          (vnTransactions.status === 'RECEIVED' || vnTransactions.status === 'FINISHED')) {
+        console.log(`Not refunding order ${transaction.order_id} as SMS was already received (status: ${vnTransactions.status})`);
+        return; // Exit early, no refund needed
       }
-      
-      return;
     }
+    
+    // Check OTP sessions too as a fallback
+    if (transaction.order_id) {
+      const { data: otpSession, error: otpError } = await supabase
+        .from('otp_sessions')
+        .select('sms_code, status')
+        .eq('order_id', transaction.order_id)
+        .maybeSingle();
+        
+      if (!otpError && otpSession && 
+          (otpSession.sms_code || otpSession.status === 'RECEIVED')) {
+        console.log(`Not refunding order ${transaction.order_id} as SMS was found in OTP session`);
+        return; // Exit early, no refund needed
+      }
+    }
+    
+    // Check if this transaction has already been refunded by looking for CREDIT transactions with this order_id
+    const { data: existingRefunds, error: refundCheckError } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('order_id', transaction.order_id)
+      .eq('type', 'CREDIT')
+      .ilike('reference_id', '%REFUND%');
+      
+    if (refundCheckError) {
+      console.error('Error checking for existing refunds:', refundCheckError);
+    } else if (existingRefunds && existingRefunds.length > 0) {
+      console.log(`Refund already exists for order ${transaction.order_id}, no need to process again`);
+      return; // Exit early, refund already processed
+    }
+    
+    // First update the transaction status to FAILED
+    const { error: updateError } = await supabase
+      .from('transactions')
+      .update({ 
+        status: 'FAILED',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', transactionId);
 
+    if (updateError) {
+      console.error('Error updating transaction status:', updateError);
+      throw updateError;
+    }
+    
     // Get current wallet balance
     const { data: walletData, error: walletError } = await supabase
       .from('wallet_balances')
@@ -797,475 +793,59 @@ export async function cleanupStuckTransactions(
       console.error('Error fetching wallet balance:', walletError);
       throw walletError;
     }
+    
     if (!walletData) {
       console.error(`No wallet found for user ${userId}`);
       throw new Error('Wallet not found');
     }
 
-    let currentBalance = Number(walletData.balance);
-    console.log(`Current wallet balance: ${currentBalance}`);
-    let refundsProcessed = 0;
-
-    // 2. Process each pending transaction
-    for (const transaction of pendingTransactions) {
-      console.log(`Processing stuck transaction ${transaction.id} for order ${transaction.order_id}`);
-      try {
-        // Check if a refund transaction already exists
-        const { data: existingRefunds, error: refundCheckError } = await supabase
-          .from('transactions')
-          .select('*')
-          .eq('user_id', userId)
-          .eq('type', 'CREDIT')
-          .eq('order_id', transaction.order_id)
-          .ilike('reference_id', '%REFUND%');
-
-        if (refundCheckError) {
-          console.error(`Error checking for existing refunds for transaction ${transaction.id}:`, refundCheckError);
-          continue;
-        }
-
-        // Only process refund if no refund exists
-        if (!existingRefunds || existingRefunds.length === 0) {
-          console.log(`No refunds found for transaction ${transaction.id}, processing refund`);
-          
-          // Create refund transaction
-          const { error: refundError } = await supabase
-            .from('transactions')
-            .insert({
-              user_id: userId,
-              amount: transaction.amount,
-              type: 'CREDIT',
-              status: 'COMPLETED',
-              reference_id: `REFUND_TIMEOUT_${transaction.reference_id}`,
-              order_id: transaction.order_id,
-              phone_number: transaction.phone_number,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            });
-
-          if (refundError) {
-            console.error(`Error creating refund for transaction ${transaction.id}:`, refundError);
-            continue;
-          }
-
-          // Update wallet balance (refund the amount)
-          currentBalance += Number(transaction.amount);
-          refundsProcessed++;
-          
-          console.log(`Refund created for transaction ${transaction.id}, amount: ${transaction.amount}`);
-        } else {
-          console.log(`Refund already exists for transaction ${transaction.id}: ${existingRefunds[0].id}`);
-        }
-
-        // Update original transaction status to FAILED
-        const { error: updateError } = await supabase
-          .from('transactions')
-          .update({
-            status: 'FAILED',
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', transaction.id);
-
-        if (updateError) {
-          console.error(`Error updating transaction ${transaction.id} to FAILED:`, updateError);
-          continue;
-        }
-        
-        console.log(`Transaction ${transaction.id} marked as FAILED`);
-      } catch (processError) {
-        console.error(`Error processing transaction ${transaction.id}:`, processError);
-      }
-    }
-
-    // Only update balance if there were actual refunds
-    if (refundsProcessed > 0) {
-      console.log(`Updating wallet balance to ${currentBalance} after processing ${refundsProcessed} refunds`);
-      
-      const { error: balanceError } = await supabase
-        .from('wallet_balances')
-        .update({
-          balance: currentBalance,
-          updated_at: new Date().toISOString()
-        })
-        .eq('user_id', userId);
-
-      if (balanceError) {
-        console.error('Error updating wallet balance:', balanceError);
-        throw balanceError;
-      }
-      
-      console.log(`Successfully updated wallet balance to ${currentBalance}`);
-    } else {
-      console.log('No balance update needed, no refunds processed');
-    }
+    // Calculate new balance
+    const currentBalance = Number(walletData.balance);
+    const refundAmount = Number(transaction.amount);
+    const newBalance = currentBalance + refundAmount;
     
-    console.log(`Completed cleanup of stuck transactions for user ${userId}`);
-  } catch (error) {
-    console.error('Error cleaning up stuck transactions:', error);
-    throw error;
-  }
-};
-
-// Update handleVirtualNumberRefund to use correct status values
-export const handleVirtualNumberRefund = async (
-  userId: string,
-  transactionId: string,
-  reason: 'CANCELED' | 'TIMEOUT' | 'BANNED'
-): Promise<void> => {
-  try {
-    console.log(`Starting refund process for user ${userId}, transaction ${transactionId}, reason ${reason}`);
+    console.log(`Processing refund: Current balance: ${currentBalance}, Refund amount: ${refundAmount}, New balance: ${newBalance}`);
     
-    // First, check if this transaction has already been refunded recently
-    // This is to prevent double refunds within a short time period
-    const checkTimeWindow = new Date();
-    checkTimeWindow.setMinutes(checkTimeWindow.getMinutes() - 5); // Check the last 5 minutes
-    
-    const { data: recentRefunds, error: recentRefundError } = await supabase
-      .from('transactions')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('type', 'CREDIT')
-      .gt('created_at', checkTimeWindow.toISOString())
-      .ilike('reference_id', '%REFUND%');
-      
-    if (recentRefundError) {
-      console.error('Error checking recent refunds:', recentRefundError);
-    } else if (recentRefunds && recentRefunds.length > 0) {
-      console.log(`Found ${recentRefunds.length} recent refunds, checking if any match our transaction`);
-      
-      // Get the transaction to find its order_id and amount
-      const { data: transaction, error: transactionError } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('id', transactionId)
-        .maybeSingle();
-        
-      if (!transactionError && transaction) {
-        // Check if any of the recent refunds match this transaction's order_id or match the exact amount
-        const matchingRefunds = recentRefunds.filter(refund => {
-          // Consider a refund matching if:
-          // 1. It has the same order_id OR
-          // 2. It has the same amount AND similar reference (contains the service name)
-          return (
-            (refund.order_id && refund.order_id === transaction.order_id) ||
-            (refund.amount === transaction.amount && 
-             transaction.reference_id && 
-             refund.reference_id.includes(transaction.reference_id))
-          );
-        });
-        
-        if (matchingRefunds.length > 0) {
-          console.log(`Refund already processed for this transaction/order. Found ${matchingRefunds.length} matching refunds.`);
-          console.log(`Most recent refund: ${matchingRefunds[0].id} created at ${matchingRefunds[0].created_at}`);
-          return; // Exit early, no need to process refund again
-        }
-      }
-    }
-    
-    // Get the transaction
-    let transactionToProcess;
-    const { data: transaction, error: transactionError } = await supabase
-      .from('transactions')
-      .select('*')
-      .eq('id', transactionId)
-      .eq('user_id', userId)
-      .single();
-
-    if (transactionError) {
-      console.error('Transaction fetch error:', transactionError);
-      throw transactionError;
-    }
-    
-    if (!transaction) {
-      console.error(`No transaction found with ID ${transactionId} for user ${userId}`);
-      
-      // Fallback: Try to find transaction by the most recent DEBIT transaction for this user
-      console.log(`Attempting to find most recent transaction for user ${userId}`);
-      const { data: recentTransactions, error: recentError } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('type', 'DEBIT')
-        .order('created_at', { ascending: false })
-        .limit(5);
-        
-      if (recentError) {
-        console.error('Recent transactions fetch error:', recentError);
-        throw new Error('Transaction not found and fallback search failed');
-      }
-      
-      if (recentTransactions && recentTransactions.length > 0) {
-        console.log(`Found ${recentTransactions.length} recent transactions for user ${userId}`);
-        // Use the most recent transaction
-        const mostRecent = recentTransactions[0];
-        console.log(`Using most recent transaction: ${mostRecent.id} (${mostRecent.created_at})`);
-        // Continue with this transaction instead
-        transactionToProcess = mostRecent;
-      } else {
-        throw new Error('No transactions found for this user');
-      }
-    } else {
-      transactionToProcess = transaction;
-    }
-    
-    console.log(`Found transaction: ${transactionToProcess.id}, status: ${transactionToProcess.status}, amount: ${transactionToProcess.amount}`);
-
-    // Check if this transaction has already been refunded by looking for CREDIT transactions with this order_id
-    // This is a more thorough check than just checking recently
-    const { data: relatedTransactions, error: relatedError } = await supabase
-      .from('transactions')
-      .select('*')
-      .eq('order_id', transactionToProcess.order_id)
-      .eq('type', 'CREDIT')
+    // Update wallet balance
+    const { error: balanceError } = await supabase
+      .from('wallet_balances')
+      .update({ 
+        balance: newBalance,
+        updated_at: new Date().toISOString()
+      })
       .eq('user_id', userId);
-      
-    if (relatedError) {
-      console.error('Error checking for related transactions:', relatedError);
+
+    if (balanceError) {
+      console.error('Error updating wallet balance:', balanceError);
+      throw balanceError;
     }
     
-    if (relatedTransactions && relatedTransactions.length > 0) {
-      console.log(`Found ${relatedTransactions.length} related CREDIT transactions for this order`);
-      
-      // Check if any of these transactions are refunds
-      const refunds = relatedTransactions.filter(t => 
-        t.reference_id.includes('REFUND') || 
-        t.reference_id.includes(transactionToProcess.reference_id)
-      );
-      
-      if (refunds.length > 0) {
-        console.log(`Refund already processed in ${refunds.length} transactions. Latest refund ID: ${refunds[0].id}`);
-        return;
-      }
+    // Create a unique reference ID to avoid duplicates
+    const refundReference = `REFUND_${reason}_${transaction.reference_id}`;
+    const timestamp = new Date().getTime();
+    const uniqueRefundReference = `${refundReference}_${timestamp}`;
+    
+    // Create refund transaction record
+    const { error: refundError } = await supabase
+      .from('transactions')
+      .insert({
+        user_id: userId,
+        amount: refundAmount,
+        type: 'CREDIT',
+        status: 'COMPLETED',
+        reference_id: uniqueRefundReference,
+        order_id: transaction.order_id,
+        phone_number: transaction.phone_number,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+
+    if (refundError) {
+      console.error('Error creating refund transaction:', refundError);
+      throw refundError;
     }
     
-    // For extra safety, create a "transaction lock" record to prevent concurrent refund processing
-    const lockId = `lock_${userId}_${transactionToProcess.id}`;
-    const lockData = {
-      id: lockId,
-      user_id: userId,
-      transaction_id: transactionToProcess.id,
-      expires_at: new Date(Date.now() + 30000).toISOString() // 30 seconds lock
-    };
-    
-    try {
-      // Try to insert a lock record
-      const { error: lockError } = await supabase
-        .from('refund_locks')
-        .upsert(lockData, { onConflict: 'id' })
-        .select()
-        .single();
-        
-      if (lockError) {
-        // If the table doesn't exist, just log and continue
-        if (lockError.code === '42P01') { // Relation does not exist
-          console.log('Refund lock table not found, continuing without lock');
-        } else {
-          console.warn('Could not obtain refund lock, but continuing:', lockError);
-        }
-      } else {
-        console.log(`Obtained refund lock: ${lockId}`);
-      }
-    } catch (lockError) {
-      console.warn('Error with refund lock system, continuing anyway:', lockError);
-    }
-
-    // Process refund for MOST transactions - be more permissive to fix bugs
-    // Only skip if it's already FAILED (not COMPLETED since we want to refund COMPLETED transactions too in case of cancellation)
-    if (transactionToProcess.status !== 'FAILED') {
-      console.log(`Processing refund for transaction ${transactionToProcess.id} with status ${transactionToProcess.status}`);
-      
-      // Get current balance
-      const { data: walletData, error: walletError } = await supabase
-        .from('wallet_balances')
-        .select('balance')
-        .eq('user_id', userId)
-        .single();
-
-      if (walletError) {
-        console.error('Wallet fetch error:', walletError);
-        throw walletError;
-      }
-      
-      if (!walletData) {
-        console.error(`No wallet found for user ${userId}`);
-        throw new Error('Wallet not found');
-      }
-
-      const currentBalance = Number(walletData.balance);
-      const refundAmount = Number(transactionToProcess.amount);
-      console.log(`Current balance: ${currentBalance}, Refund amount: ${refundAmount}`);
-      
-      // Update balance - add the refund amount
-      const newBalance = currentBalance + refundAmount;
-      console.log(`New balance will be: ${newBalance}`);
-      
-      const { error: updateError } = await supabase
-        .from('wallet_balances')
-        .update({ 
-          balance: newBalance,
-          updated_at: new Date().toISOString()
-        })
-        .eq('user_id', userId);
-
-      if (updateError) {
-        console.error('Balance update error:', updateError);
-        throw updateError;
-      }
-      
-      console.log(`Balance updated successfully to ${newBalance}`);
-
-      // Update original transaction status to FAILED
-      const { error: updateTransError } = await supabase
-        .from('transactions')
-        .update({ 
-          status: 'FAILED',
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', transactionToProcess.id);
-
-      if (updateTransError) {
-        console.error('Transaction status update error:', updateTransError);
-        throw updateTransError;
-      }
-      
-      console.log(`Transaction ${transactionToProcess.id} status updated to FAILED`);
-
-      // Add more detail to the reference_id for better tracking
-      const refundReference = `REFUND_${reason}_${transactionToProcess.reference_id}`;
-      const timestamp = new Date().getTime(); // Add timestamp to make reference unique
-      const uniqueRefundReference = `${refundReference}_${timestamp}`;
-
-      // Create refund transaction
-      const { data: refundTransaction, error: refundError } = await supabase
-        .from('transactions')
-        .insert({
-          user_id: userId,
-          amount: transactionToProcess.amount,
-          type: 'CREDIT',
-          status: 'COMPLETED',
-          reference_id: uniqueRefundReference, // Use unique reference to prevent duplicates
-          order_id: transactionToProcess.order_id,
-          phone_number: transactionToProcess.phone_number,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        })
-        .select()
-        .single();
-
-      if (refundError) {
-        console.error('Refund transaction creation error:', refundError);
-        throw refundError;
-      }
-      
-      console.log(`Successfully created refund transaction: ${refundTransaction.id}`);
-      console.log(`Completed refund process for transaction ${transactionToProcess.id}, reason: ${reason}`);
-      
-      // Try to clean up the lock if it exists
-      try {
-        await supabase
-          .from('refund_locks')
-          .delete()
-          .eq('id', lockId);
-      } catch (cleanupError) {
-        console.warn('Could not clean up refund lock, will expire naturally:', cleanupError);
-      }
-      
-      return;
-    } else {
-      console.log(`Transaction ${transactionToProcess.id} is already in ${transactionToProcess.status} status, checking if refund exists`);
-      
-      // Even if the transaction is FAILED, let's make sure a refund exists
-      // This handles the case where the transaction was marked FAILED but no refund was created
-      
-      // Check if a refund transaction exists
-      const { data: refundCheck, error: refundCheckError } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('type', 'CREDIT')
-        .eq('order_id', transactionToProcess.order_id)
-        .ilike('reference_id', '%REFUND%')
-        .maybeSingle();
-        
-      if (refundCheckError) {
-        console.error('Error checking for refund transaction:', refundCheckError);
-      }
-      
-      if (!refundCheck) {
-        console.log('No refund found for FAILED transaction, creating one now');
-        
-        // Get current balance
-        const { data: walletData, error: walletError } = await supabase
-          .from('wallet_balances')
-          .select('balance')
-          .eq('user_id', userId)
-          .single();
-
-        if (walletError) {
-          console.error('Wallet fetch error:', walletError);
-          throw walletError;
-        }
-        
-        const currentBalance = Number(walletData.balance);
-        const refundAmount = Number(transactionToProcess.amount);
-        
-        // Update balance
-        const newBalance = currentBalance + refundAmount;
-        const { error: updateError } = await supabase
-          .from('wallet_balances')
-          .update({ 
-            balance: newBalance,
-            updated_at: new Date().toISOString()
-          })
-          .eq('user_id', userId);
-
-        if (updateError) {
-          console.error('Balance update error:', updateError);
-          throw updateError;
-        }
-        
-        // Add more detail to the reference_id for better tracking
-        const refundReference = `REFUND_${reason}_${transactionToProcess.reference_id}`;
-        const timestamp = new Date().getTime(); // Add timestamp to make reference unique
-        const uniqueRefundReference = `${refundReference}_${timestamp}`;
-
-        // Create refund transaction
-        const { data: refundTransaction, error: refundError } = await supabase
-          .from('transactions')
-          .insert({
-            user_id: userId,
-            amount: transactionToProcess.amount,
-            type: 'CREDIT',
-            status: 'COMPLETED',
-            reference_id: uniqueRefundReference, // Use unique reference to prevent duplicates
-            order_id: transactionToProcess.order_id,
-            phone_number: transactionToProcess.phone_number,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          })
-          .select()
-          .single();
-
-        if (refundError) {
-          console.error('Refund transaction creation error:', refundError);
-          throw refundError;
-        }
-        
-        console.log(`Created missing refund transaction: ${refundTransaction.id} for failed transaction`);
-      } else {
-        console.log(`Refund already exists for this failed transaction: ${refundCheck.id}`);
-      }
-    }
-    
-    // Try to clean up the lock if it exists
-    try {
-      await supabase
-        .from('refund_locks')
-        .delete()
-        .eq('id', lockId);
-    } catch (cleanupError) {
-      console.warn('Could not clean up refund lock, will expire naturally:', cleanupError);
-    }
+    console.log(`Successfully processed refund of ${refundAmount} for order ${transaction.order_id}`);
   } catch (error) {
     console.error('Error handling virtual number refund:', error);
     throw error;
@@ -1278,10 +858,14 @@ export const updateVirtualNumberStatus = async (
   orderId: string,
   status: VirtualNumberStatus,
   smsCode?: string,
-  fullSms?: string
+  fullSms?: string,
+  skipRefund?: boolean
 ): Promise<void> => {
   try {
     console.log(`[updateVirtualNumberStatus] Updating order ${orderId} to status ${status} for user ${userId}`);
+    if (skipRefund) {
+      console.log(`Skipping refund for order ${orderId} as SMS was already received`);
+    }
     
     // Find the DEBIT transaction associated with this order (original purchase)
     let transactionsData;
@@ -1347,8 +931,13 @@ export const updateVirtualNumberStatus = async (
           console.log(`Processing refund for order ${orderId} with status ${status}`);
           // Process refund when canceled, timed out, or banned
           try {
-            await handleVirtualNumberRefund(userId, transactionId, status);
-            console.log(`Refund successfully processed for order ${orderId}`);
+            // Skip refund if service was already used (SMS received)
+            if (skipRefund) {
+              console.log(`Skipping refund for order ${orderId} as SMS was already received`);
+            } else {
+              await handleVirtualNumberRefund(userId, transactionId, status);
+              console.log(`Refund successfully processed for order ${orderId}`);
+            }
           } catch (refundError) {
             console.error(`Error processing refund for ${status} status:`, refundError);
             // Try direct balance update as a last resort if refund fails

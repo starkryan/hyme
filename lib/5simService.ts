@@ -660,30 +660,58 @@ export const checkSmsMessages = async (orderId: number): Promise<SmsInboxRespons
   }
 };
 
-export const cancelOrder = async (orderId: number): Promise<OrderResponse | undefined> => {
+export const cancelOrder = async (orderId: string): Promise<any | undefined> => {
   try {
-    console.log(`Cancelling order: ${orderId}`);
+    console.log(`Attempting to cancel order ${orderId}...`);
     
-    // Use our API route instead of direct API call
-    const url = `/api/cancel-order?id=${orderId}`;
+    const url = `${API_URL}/v1/user/cancel/${orderId}`;
+    
     const response = await fetch(url, {
+      method: 'GET',
       headers: {
-        'Accept': 'application/json'
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${API_KEY}`
       }
     });
 
     if (!response.ok) {
       const errorData = await response.text();
       console.error(`Error response from cancel API (${response.status}):`, errorData);
+      
+      // Special handling for 400 errors which often indicate the order can't be cancelled
+      // because the SMS was already received or the order is in a final state
+      if (response.status === 400) {
+        let parsedError;
+        try {
+          parsedError = JSON.parse(errorData);
+        } catch (e) {
+          // If JSON parsing fails, use the raw text
+          parsedError = { error: errorData };
+        }
+        
+        const errorDetail = typeof parsedError === 'object' && parsedError?.error 
+          ? parsedError.error 
+          : 'Order cannot be cancelled';
+          
+        throw new Error(`Cannot cancel order: ${errorDetail}`);
+      }
+      
       throw new Error(`HTTP error! status: ${response.status}, details: ${errorData}`);
     }
 
     const data = await response.json();
+    console.log(`Successfully cancelled order ${orderId}`);
     return data;
   } catch (error: any) {
     console.error('Failed to cancel order:', error);
-    // Don't throw here, just return undefined to let the component handle the fallback
-    return undefined;
+    
+    // Add more detailed error information
+    if (error.message && error.message.includes('400')) {
+      console.log('This is likely because the order is already completed or SMS was received');
+    }
+    
+    // Rethrow the error with the clear message for the component to handle
+    throw error;
   }
 };
 
@@ -786,14 +814,32 @@ export const banOrder = async (orderId: number): Promise<OrderResponse | undefin
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      // Parse error response
+      const errorData = await response.json();
+      console.error(`Error response from ban API (${response.status}):`, errorData);
+      
+      // For 400 errors which likely indicate SMS was already received
+      if (response.status === 400) {
+        const errorMessage = errorData.details || errorData.error || 'Order cannot be banned';
+        throw new Error(`Cannot ban order: ${errorMessage}`);
+      }
+      
+      throw new Error(`HTTP error! status: ${response.status}, details: ${JSON.stringify(errorData)}`);
     }
 
     const data = await response.json();
+    console.log(`Successfully banned order ${orderId}`);
     return data;
   } catch (error: any) {
     console.error('Failed to ban order:', error);
-    return undefined;
+    
+    // Add more detailed error information
+    if (error.message && error.message.includes('400')) {
+      console.log('This is likely because the order is already completed or SMS was received');
+    }
+    
+    // Rethrow the error with the clear message for the component to handle
+    throw error;
   }
 };
 
@@ -946,7 +992,7 @@ export const completeVerification = async (
         response = await finishOrder(Number(orderId));
         break;
       case 'cancel':
-        response = await cancelOrder(Number(orderId));
+        response = await cancelOrder(orderId);
         break;
       case 'ban':
         response = await banOrder(Number(orderId));
