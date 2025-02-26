@@ -1,18 +1,12 @@
 import { redirect } from 'next/navigation'
 import { checkRole } from '@/lib/roles'
-
 import { clerkClient } from '@clerk/nextjs/server'
 import { removeRole, setRole } from './_actions'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { RechargeRequests } from '@/components/admin/RechargeRequests'
 import { Badge } from "@/components/ui/badge"
-import { createClient } from '@supabase/supabase-js'
-
-// Initialize Supabase client
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseKey);
+import { supabase } from '@/lib/supabase'
 
 export default async function AdminDashboard(params: {
   searchParams: Promise<{ search?: string }>

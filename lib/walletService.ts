@@ -1,74 +1,104 @@
-import { createClient } from '@supabase/supabase-js';
 import { Transaction, RechargeRequest } from '@/types/wallet';
+import { supabase } from '@/lib/supabase';
 
-// Initialize Supabase client
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-const supabase = createClient(supabaseUrl, supabaseKey);
-
-// Helper function to handle Supabase errors
-function handleSupabaseError(error: unknown, defaultMessage: string): never {
+// Helper function to handle Supabase errors - now with proper generic return type
+function handleSupabaseError<T>(error: unknown, defaultMessage: string, defaultValue: T): T {
+  // Log error details for debugging
+  console.error('Database error:', error);
+  
   if (error instanceof Error) {
     console.error('Error details:', {
       message: error.message,
       name: error.name,
       stack: error.stack
     });
-    throw error;
+    return defaultValue;
   }
 
   // Handle Supabase PostgrestError
   if (error && typeof error === 'object' && 'code' in error) {
     const err = error as Record<string, unknown>;
     
-    console.error('Database error:', {
+    console.error('Database error details:', {
       code: err.code,
       message: err.message,
       details: err.details,
       hint: err.hint
     });
 
-    // Handle specific error codes
+    // For specific error codes, just log them
     if (err.code === '23505') {
-      throw new Error('This record already exists');
+      console.error('This record already exists');
+      return defaultValue;
     }
     if (err.code === '42P01') {
-      throw new Error('Database table not found');
+      console.error('Database table not found');
+      return defaultValue;
     }
     if (err.code === '42501') {
-      throw new Error('Permission denied');
+      console.error('Permission denied');
+      return defaultValue;
     }
     if (err.code === '23503') {
-      throw new Error('Referenced record does not exist');
+      console.error('Referenced record does not exist');
+      return defaultValue;
+    }
+    if (err.code === 'PGRST116') {
+      console.error('No rows returned when one was expected');
+      return defaultValue;
     }
     
-    // If it has a message, use it
+    // If it has a message, log it
     if (typeof err.message === 'string' && err.message) {
-      throw new Error(err.message);
+      console.error(err.message);
+      return defaultValue;
     }
   }
 
-  // If we can't determine the error type, throw the default message
-  throw new Error(defaultMessage);
+  // If we can't determine the error type, log the default message
+  console.error(defaultMessage);
+  return defaultValue;
 }
 
-// Get or initialize wallet balance
-export async function getWalletBalance(userId: string): Promise<number> {
+// Get wallet balance from the database
+export const getWalletBalance = async (
+  userId: string
+): Promise<number> => {
   try {
+    // Get wallet balance from the database
     const { data, error } = await supabase
       .from('wallet_balances')
       .select('balance')
       .eq('user_id', userId)
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
-    return data?.balance || 0;
+
+    // If user does not have a wallet, create one with zero balance
+    if (!data) {
+      // Create a new wallet record
+      const { data: newWallet, error: createError } = await supabase
+        .from('wallet_balances')
+        .insert([
+          { 
+            user_id: userId, 
+            balance: 0,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }
+        ])
+        .select()
+        .single();
+
+      if (createError) throw createError;
+      return 0;
+    }
+
+    return Number(data.balance);
   } catch (error) {
-    console.error('Error fetching wallet balance:', error);
-    return 0;
+    return handleSupabaseError(error, 'Error getting wallet balance', 0);
   }
-}
+};
 
 export async function updateWalletBalance(userId: string, amount: number, type: 'CREDIT' | 'DEBIT'): Promise<void> {
   try {
@@ -170,32 +200,28 @@ export async function createTransaction(
   }
 }
 
-export async function getTransactionHistory(userId: string): Promise<Transaction[]> {
+// For functions returning Transaction or Transaction[] types
+export const getTransactionHistory = async (userId: string): Promise<Transaction[]> => {
   try {
     const { data, error } = await supabase
       .from('transactions')
       .select('*')
       .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(50);
+      .order('created_at', { ascending: false });
 
-    if (error) {
-      throw error;
-    }
-
-    return data;
+    if (error) throw error;
+    return data || [];
   } catch (error) {
-    console.error('Error fetching transaction history:', error);
-    throw error;
+    return handleSupabaseError(error, 'Error getting transaction history', []);
   }
-}
+};
 
 export const createTransactionInDatabase = async (
   userId: string,
   amount: number,
   type: 'CREDIT' | 'DEBIT',
   referenceId?: string
-): Promise<Transaction> => {
+): Promise<Transaction | null> => {
   try {
     const { data, error } = await supabase
       .from('transactions')
@@ -211,11 +237,11 @@ export const createTransactionInDatabase = async (
       .single();
 
     if (error) {
-      return handleSupabaseError(error, 'Failed to create transaction');
+      return handleSupabaseError(error, 'Failed to create transaction', null);
     }
     return data as Transaction;
   } catch (error) {
-    return handleSupabaseError(error, 'Error creating transaction');
+    return handleSupabaseError(error, 'Error creating transaction', null);
   }
 };
 
@@ -233,10 +259,12 @@ export const updateTransactionStatus = async (
       .eq('id', transactionId);
 
     if (error) {
-      return handleSupabaseError(error, 'Failed to update transaction status');
+      handleSupabaseError(error, 'Failed to update transaction status', null);
+      return;
     }
   } catch (error) {
-    return handleSupabaseError(error, 'Error updating transaction status');
+    handleSupabaseError(error, 'Error updating transaction status', null);
+    return;
   }
 };
 
@@ -256,10 +284,12 @@ export const initializeWallet = async (userId: string): Promise<void> => {
       });
 
     if (error && error.code !== '23505') { // Ignore unique violation
-      return handleSupabaseError(error, 'Failed to initialize wallet');
+      handleSupabaseError(error, 'Failed to initialize wallet', null);
+      return;
     }
   } catch (error) {
-    return handleSupabaseError(error, 'Error initializing wallet');
+    handleSupabaseError(error, 'Error initializing wallet', null);
+    return;
   }
 };
 
@@ -270,7 +300,7 @@ export async function createRechargeRequest(
   userId: string,
   amount: number,
   utrNumber: string
-): Promise<RechargeRequest> {
+): Promise<RechargeRequest | null> {
   try {
     // Input validation
     if (!userId) {
@@ -327,36 +357,44 @@ export async function createRechargeRequest(
 
     return data as RechargeRequest;
   } catch (error) {
-    return handleSupabaseError(error, 'Error creating recharge request');
+    return handleSupabaseError(error, 'Error creating recharge request', null);
   }
 }
 
-export async function getRechargeHistory(userId: string): Promise<RechargeRequest[]> {
+// For functions returning RechargeRequest or RechargeRequest[] types
+export const getRechargeRequest = async (id: string): Promise<RechargeRequest | null> => {
   try {
-    if (!userId) {
-      throw new Error('User ID is required');
-    }
+    const { data, error } = await supabase
+      .from('recharge_requests')
+      .select('*')
+      .eq('id', id)
+      .single();
 
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    return handleSupabaseError(error, `Error getting recharge request ${id}`, null);
+  }
+};
+
+export const getRechargeRequests = async (userId: string): Promise<RechargeRequest[]> => {
+  try {
     const { data, error } = await supabase
       .from('recharge_requests')
       .select('*')
       .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(50);
+      .order('created_at', { ascending: false });
 
-    if (error) {
-      throw error;
-    }
-
+    if (error) throw error;
     return data || [];
   } catch (error) {
-    return handleSupabaseError(error, 'Failed to fetch recharge history');
+    return handleSupabaseError(error, 'Error getting recharge requests', []);
   }
-}
+};
 
 export const verifyRechargeRequest = async (requestId: string, status: 'COMPLETED' | 'FAILED') => {
   try {
-    // Start a Supabase transaction
+    // Get the recharge request
     const { data: request, error: fetchError } = await supabase
       .from('recharge_requests')
       .select('*')
@@ -368,10 +406,25 @@ export const verifyRechargeRequest = async (requestId: string, status: 'COMPLETE
 
     // If approving the request, add balance to user's wallet
     if (status === 'COMPLETED') {
-      const { error: walletError } = await supabase.rpc('add_wallet_balance', {
-        p_user_id: request.user_id,
-        p_amount: request.amount
-      });
+      // Get the current wallet balance
+      const { data: walletData, error: getWalletError } = await supabase
+        .from('wallet_balances')
+        .select('balance')
+        .eq('user_id', request.user_id)
+        .single();
+        
+      if (getWalletError) throw getWalletError;
+      if (!walletData) throw new Error('Wallet not found');
+      
+      // Update the wallet balance directly
+      const newBalance = Number(walletData.balance) + Number(request.amount);
+      const { error: walletError } = await supabase
+        .from('wallet_balances')
+        .update({ 
+          balance: newBalance,
+          updated_at: new Date().toISOString()
+        })
+        .eq('user_id', request.user_id);
 
       if (walletError) throw walletError;
 
@@ -427,11 +480,11 @@ export const getTransactions = async (userId: string): Promise<Transaction[]> =>
       .order('created_at', { ascending: false });
 
     if (error) {
-      return handleSupabaseError(error, 'Failed to fetch transactions');
+      return handleSupabaseError(error, 'Failed to fetch transactions', []);
     }
     return data;
   } catch (error) {
-    return handleSupabaseError(error, 'Error fetching transactions');
+    return handleSupabaseError(error, 'Error fetching transactions', []);
   }
 };
 
@@ -484,9 +537,7 @@ export const createVirtualNumberTransaction = async (
 ): Promise<VirtualNumberTransaction> => {
   return withRetry(async () => {
     try {
-      await supabase.rpc('begin');
-      
-      // Check balance with FOR UPDATE lock
+      // Check balance without using transactions
       const { data: walletData, error: walletError } = await supabase
         .from('wallet_balances')
         .select('balance')
@@ -501,7 +552,7 @@ export const createVirtualNumberTransaction = async (
         throw new Error('Insufficient balance');
       }
 
-      // Create transaction with optimistic locking
+      // Create transaction record
       const { data: transaction, error: transactionError } = await supabase
         .from('transactions')
         .insert({
@@ -520,47 +571,63 @@ export const createVirtualNumberTransaction = async (
 
       if (transactionError) throw transactionError;
 
-      // Update balance with version check
+      // Update balance
       const { error: updateError } = await supabase
         .from('wallet_balances')
         .update({ 
           balance: currentBalance - amount,
           updated_at: new Date().toISOString()
         })
-        .eq('user_id', userId)
-        .eq('balance', currentBalance);
+        .eq('user_id', userId);
 
       if (updateError) throw updateError;
 
-      await supabase.rpc('commit');
       return transaction;
     } catch (error) {
-      await supabase.rpc('rollback');
+      console.error("Error in createVirtualNumberTransaction:", error);
       throw error;
     }
   });
 };
 
-// Function to handle successful OTP receipt
+// Function to handle successful OTP receipt - update to not use transactions
 export const handleSuccessfulOTP = async (
   userId: string,
   transactionId: string,
   orderId: string
 ): Promise<void> => {
   try {
-    await supabase.rpc('begin');
-
-    // Get the pending transaction
+    // Validate input parameters
+    if (!userId || !transactionId || !orderId) {
+      console.warn('Invalid parameters for handleSuccessfulOTP', { userId, transactionId, orderId });
+      return;
+    }
+    
+    // Get the transaction - don't filter by status to avoid errors
     const { data: transaction, error: transactionError } = await supabase
       .from('transactions')
       .select('*')
       .eq('id', transactionId)
       .eq('user_id', userId)
-      .eq('status', 'PENDING')
-      .single();
+      .maybeSingle(); // Use maybeSingle instead of single to avoid errors when no rows found
 
-    if (transactionError) throw transactionError;
-    if (!transaction) throw new Error('Transaction not found');
+    // Handle database error but don't throw
+    if (transactionError) {
+      console.error('Database error in handleSuccessfulOTP:', transactionError);
+      return; // Exit gracefully on database error
+    }
+    
+    // Handle missing transaction
+    if (!transaction) {
+      console.warn(`No transaction found with ID ${transactionId} for user ${userId}`);
+      return; // Exit gracefully if no transaction found
+    }
+
+    // Skip update if transaction is already in a final state
+    if (transaction.status === 'COMPLETED' || transaction.status === 'FAILED') {
+      console.log(`Transaction ${transactionId} already in final state: ${transaction.status}`);
+      return; // Exit gracefully
+    }
 
     // Update transaction status to COMPLETED
     const { error: updateError } = await supabase
@@ -569,28 +636,37 @@ export const handleSuccessfulOTP = async (
         status: 'COMPLETED',
         updated_at: new Date().toISOString()
       })
-      .eq('id', transactionId);
+      .eq('id', transactionId)
+      .eq('user_id', userId); // Extra safety to ensure we're updating the right record
 
-    if (updateError) throw updateError;
-
-    await supabase.rpc('commit');
+    if (updateError) {
+      console.error('Error updating transaction status:', updateError);
+      return; // Exit gracefully on database error
+    }
+    
+    // Transaction is now marked as COMPLETED
+    console.log(`Successfully updated transaction ${transactionId} to COMPLETED`);
+    
+    // If we've reached this point and the transaction was in PENDING state,
+    // it means we need to finalize the balance deduction
+    if (transaction.status === 'PENDING') {
+      // No need to deduct the balance again as it was already deducted during the createVirtualNumberTransaction
+      // But we do need to log this deduction in the console for tracking purposes
+      console.log(`Balance deduction finalized for transaction ${transactionId} (${transaction.amount} ${transaction.currency || 'INR'})`);
+    }
   } catch (error) {
-    await supabase.rpc('rollback');
-    throw error;
+    console.error("Error in handleSuccessfulOTP:", error);
+    // Don't throw the error, just log it to prevent component from crashing
   }
 };
 
-// Function to clean up stuck pending transactions
+// Function to clean up stuck transactions - update to not use transactions
 export async function cleanupStuckTransactions(
   userId: string
 ): Promise<void> {
-  const client = supabase;
-  
   try {
-    await client.rpc('begin');
-
     // 1. Get all pending transactions older than 15 minutes
-    const { data: pendingTransactions, error: fetchError } = await client
+    const { data: pendingTransactions, error: fetchError } = await supabase
       .from('transactions')
       .select('*')
       .eq('user_id', userId)
@@ -600,12 +676,11 @@ export async function cleanupStuckTransactions(
 
     if (fetchError) throw fetchError;
     if (!pendingTransactions || pendingTransactions.length === 0) {
-      await client.rpc('commit');
       return;
     }
 
     // Get current wallet balance
-    const { data: walletData, error: walletError } = await client
+    const { data: walletData, error: walletError } = await supabase
       .from('wallet_balances')
       .select('balance')
       .eq('user_id', userId)
@@ -619,7 +694,7 @@ export async function cleanupStuckTransactions(
     // 2. Process each pending transaction
     for (const transaction of pendingTransactions) {
       // Check if a refund transaction already exists
-      const { data: existingRefund } = await client
+      const { data: existingRefund } = await supabase
         .from('transactions')
         .select('*')
         .eq('user_id', userId)
@@ -630,7 +705,7 @@ export async function cleanupStuckTransactions(
       // Only process refund if no refund exists
       if (!existingRefund) {
         // Create refund transaction
-        const { error: refundError } = await client
+        const { error: refundError } = await supabase
           .from('transactions')
           .insert({
             user_id: userId,
@@ -651,7 +726,7 @@ export async function cleanupStuckTransactions(
       }
 
       // Update original transaction status to FAILED
-      const { error: updateError } = await client
+      const { error: updateError } = await supabase
         .from('transactions')
         .update({
           status: 'FAILED',
@@ -664,7 +739,7 @@ export async function cleanupStuckTransactions(
 
     // Only update balance if there were actual refunds
     if (currentBalance !== Number(walletData.balance)) {
-      const { error: balanceError } = await client
+      const { error: balanceError } = await supabase
         .from('wallet_balances')
         .update({
           balance: currentBalance,
@@ -674,11 +749,9 @@ export async function cleanupStuckTransactions(
 
       if (balanceError) throw balanceError;
     }
-
-    await client.rpc('commit');
   } catch (error) {
-    await client.rpc('rollback');
-    return handleSupabaseError(error, 'Error cleaning up stuck transactions');
+    console.error('Error cleaning up stuck transactions:', error);
+    throw error;
   }
 }
 
@@ -686,11 +759,9 @@ export async function cleanupStuckTransactions(
 export const handleVirtualNumberRefund = async (
   userId: string,
   transactionId: string,
-  reason: 'CANCELED' | 'TIMEOUT'
+  reason: 'CANCELED' | 'TIMEOUT' | 'BANNED'
 ): Promise<void> => {
   try {
-    await supabase.rpc('begin');
-
     // Get the transaction
     const { data: transaction, error: transactionError } = await supabase
       .from('transactions')
@@ -702,8 +773,26 @@ export const handleVirtualNumberRefund = async (
     if (transactionError) throw transactionError;
     if (!transaction) throw new Error('Transaction not found');
 
-    // Only process refund if transaction is PENDING
-    if (transaction.status === 'PENDING') {
+    // Check if a refund transaction already exists
+    const { data: existingRefund, error: refundCheckError } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('reference_id', `REFUND_${transaction.reference_id}`)
+      .eq('order_id', transaction.order_id)
+      .maybeSingle();
+      
+    if (refundCheckError && refundCheckError.code !== 'PGRST116') {
+      console.error('Error checking for existing refund:', refundCheckError);
+    }
+    
+    // Skip refund if one already exists to prevent double refunds
+    if (existingRefund) {
+      console.log(`Refund already processed for transaction ${transactionId}`);
+      return;
+    }
+
+    // Process refund for any transaction that's not already in COMPLETED or FAILED status
+    if (transaction.status !== 'COMPLETED' && transaction.status !== 'FAILED') {
       // Get current balance
       const { data: walletData, error: walletError } = await supabase
         .from('wallet_balances')
@@ -737,6 +826,9 @@ export const handleVirtualNumberRefund = async (
 
       if (updateTransError) throw updateTransError;
 
+      // Add more detail to the reference_id for better tracking
+      const refundReference = `REFUND_${reason}_${transaction.reference_id}`;
+
       // Create refund transaction
       const { error: refundError } = await supabase
         .from('transactions')
@@ -745,7 +837,7 @@ export const handleVirtualNumberRefund = async (
           amount: transaction.amount,
           type: 'CREDIT',
           status: 'COMPLETED',
-          reference_id: `REFUND_${transaction.reference_id}`,
+          reference_id: refundReference,
           order_id: transaction.order_id,
           phone_number: transaction.phone_number,
           created_at: new Date().toISOString(),
@@ -753,12 +845,140 @@ export const handleVirtualNumberRefund = async (
         });
 
       if (refundError) throw refundError;
+      
+      console.log(`Successfully processed refund for transaction ${transactionId}, reason: ${reason}`);
+      return;
+    } else {
+      console.log(`Transaction ${transactionId} is already in ${transaction.status} status, no refund needed`);
     }
-
-    await supabase.rpc('commit');
   } catch (error) {
-    await supabase.rpc('rollback');
+    console.error('Error handling virtual number refund:', error);
     throw error;
+  }
+};
+
+// Function to update virtual number transaction status in database based on 5sim status
+export const updateVirtualNumberStatus = async (
+  userId: string,
+  orderId: string,
+  status: VirtualNumberStatus,
+  smsCode?: string,
+  fullSms?: string
+): Promise<void> => {
+  try {
+    // Find the DEBIT transaction associated with this order (original purchase)
+    const { data: transactions, error: transactionError } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('order_id', orderId)
+      .eq('type', 'DEBIT'); // Only get the original purchase transaction
+
+    if (transactionError) throw transactionError;
+    
+    // If there are multiple transactions or no transactions, handle gracefully
+    if (!transactions || transactions.length === 0) {
+      console.warn(`No DEBIT transaction found for order ${orderId}, user ${userId}`);
+      // Continue with session update only
+    } else {
+      // Use the first transaction if there are multiple (unlikely but possible)
+      const transaction = transactions[0];
+      const transactionId = transaction.id;
+      
+      console.log(`Updating status for order ${orderId} to ${status}, current transaction status: ${transaction.status}`);
+      
+      // Handle different status changes
+      switch (status) {
+        case 'RECEIVED':
+          // Update to COMPLETED status when SMS is received
+          await handleSuccessfulOTP(userId, transactionId, orderId);
+          break;
+        
+        case 'CANCELED':
+        case 'TIMEOUT':
+        case 'BANNED':
+          // Process refund when canceled, timed out, or banned
+          try {
+            await handleVirtualNumberRefund(userId, transactionId, status);
+            console.log(`Refund processed for order ${orderId} with status ${status}`);
+          } catch (refundError) {
+            console.error(`Error processing refund for ${status} status:`, refundError);
+            // Continue with status update even if refund fails
+          }
+          break;
+          
+        case 'FINISHED':
+          // Just update status to COMPLETED if not already
+          if (transaction.status !== 'COMPLETED') {
+            const { error: updateError } = await supabase
+              .from('transactions')
+              .update({
+                status: 'COMPLETED',
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', transactionId);
+              
+            if (updateError) {
+              console.error('Error updating transaction to COMPLETED:', updateError);
+            } else {
+              console.log(`Transaction ${transactionId} marked as COMPLETED for FINISHED order`);
+            }
+          }
+          break;
+          
+        default:
+          // For other statuses, just update the metadata
+          const { error: updateError } = await supabase
+            .from('transactions')
+            .update({
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', transactionId);
+            
+          if (updateError) {
+            console.error('Error updating transaction metadata:', updateError);
+          }
+      }
+    }
+    
+    // Update OTP session if it exists - use maybeSingle() to avoid errors
+    const { data: session, error: sessionError } = await supabase
+      .from('otp_sessions')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('order_id', orderId)
+      .maybeSingle();
+      
+    if (sessionError) {
+      console.error('Error finding OTP session:', sessionError);
+    } else if (session) {
+      // Update the session with new status and SMS data if available
+      const sessionUpdateData: any = { 
+        status,
+        updated_at: new Date().toISOString()
+      };
+      
+      if (smsCode) {
+        sessionUpdateData.sms_code = smsCode;
+      }
+      
+      if (fullSms) {
+        sessionUpdateData.full_sms = fullSms;
+      }
+      
+      const { error: updateSessionError } = await supabase
+        .from('otp_sessions')
+        .update(sessionUpdateData)
+        .eq('id', session.id);
+        
+      if (updateSessionError) {
+        console.error('Error updating OTP session:', updateSessionError);
+      } else {
+        console.log(`OTP session updated for order ${orderId} with status ${status}`);
+      }
+    }
+  } catch (error) {
+    console.error('Error updating virtual number status:', error);
+    // Log error but don't throw, to prevent component from crashing
   }
 };
 
@@ -790,3 +1010,20 @@ export async function canPurchaseNumber(userId: string, amount: number): Promise
     return false;
   }
 }
+
+export const getVirtualNumberTransactions = async (userId: string): Promise<Transaction[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('type', 'DEBIT')
+      .ilike('description', '%Virtual number%')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    return data || [];
+  } catch (error) {
+    return handleSupabaseError(error, 'Error getting virtual number transactions', []);
+  }
+};

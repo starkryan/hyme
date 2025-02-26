@@ -2,13 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import { useUser } from '@clerk/nextjs';
-import { createClient } from '@supabase/supabase-js';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { Loader2, Copy, CheckCircle2, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
 import { verifyRechargeRequest } from '@/lib/walletService';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/lib/supabase';
 import {
   Card,
   CardContent,
@@ -26,11 +26,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-
-// Initialize Supabase client
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseKey);
 
 interface RechargeRequest {
   id: string;

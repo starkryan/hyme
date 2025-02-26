@@ -20,7 +20,7 @@ import {
   handleSuccessfulOTP,
   handleVirtualNumberRefund,
   canPurchaseNumber,
-  cleanupStuckTransactions,
+  updateVirtualNumberStatus,
 } from "@/lib/walletService"
 
 import { Button } from "@/components/ui/button"
@@ -77,7 +77,7 @@ interface Country {
 
 const GetVirtualNumber = () => {
   const { user } = useUser()
-  const { updateOtpData, clearOtpData } = useOtpPersist("virtual-number-otp")
+  const { otpData, updateOtpData, clearOtpData } = useOtpPersist("virtual-number-otp")
   const [selectedCountry, setSelectedCountry] = useState<string>("")
   const [selectedProduct, setSelectedProduct] = useState<string>("")
   const [selectedOperator, setSelectedOperator] = useState<string>("")
@@ -100,14 +100,14 @@ const GetVirtualNumber = () => {
   const [orderTimeout] = useState(900000) // 15 minutes in milliseconds
   const [timeoutTimer, setTimeoutTimer] = useState<NodeJS.Timeout | null>(null)
   const [isReactivating, setIsReactivating] = useState(false)
-  const smsCheckInterval = useRef<number | null>(null)
+  const smsCheckInterval = useRef<NodeJS.Timeout | null>(null)
   const [isOrderCancelled, setIsOrderCancelled] = useState(false)
   const [fullSms, setFullSms] = useState<string | null>(null)
   const [isNumberCopied, setIsNumberCopied] = useState(false)
   const [isOtpCopied, setIsOtpCopied] = useState(false)
   const [orderStatus, setOrderStatus] = useState<OrderStatus | null>(null)
   const [isOtpVerified, setIsOtpVerified] = useState(true)
-  const [orderCreatedAt, setOrderCreatedAt] = useState<string | null>(null)
+  const [orderCreatedAt, setOrderCreatedAt] = useState<Date | null>(null)
   const [isOrderFinished, setIsOrderFinished] = useState(false)
   const [otpTimeout, setOtpTimeout] = useState<number | null>(300) // 5 minutes in seconds
   const [timeLeft, setTimeLeft] = useState<number | null>(300)
@@ -118,7 +118,6 @@ const GetVirtualNumber = () => {
   const [filteredCountries, setFilteredCountries] = useState<Country[]>([])
   const [countrySearchQuery, setCountrySearchQuery] = useState("")
   const [serviceSearchQuery, setServiceSearchQuery] = useState("")
-  const [isCleaningUp, setIsCleaningUp] = useState(false)
   const [isCopyingNumber, setIsCopyingNumber] = useState(false)
   const [isCopyingOtp, setIsCopyingOtp] = useState(false)
 
@@ -135,8 +134,85 @@ const GetVirtualNumber = () => {
     staleTime: 10000, // Consider data stale after 10 seconds
   })
 
+  // Timers and state references
+  const resetTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const countdownTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const savedTransaction = useRef<{ id: string } | null>(null)
+
+  // Add this line near other useRefs
+  const retryAttemptsRef = useRef(0)
+
   const convertToINR = (rubPrice: number): number => {
     return Math.ceil(rubPrice * RUB_TO_INR_RATE)
+  }
+
+  // Add a comprehensive reset function to reset the UI state
+  const resetUIState = () => {
+    console.log("Resetting UI state to allow new selection...")
+    
+    // Reset selection state
+    setSelectedProduct("")
+    setSelectedOperator("")
+    setSelectedOperatorDetails(null)
+    
+    // Reset order state
+    setNumber(null)
+    setSmsCode(null)
+    setFullSms(null)
+    setOrderId(null)
+    setOrderStatus(null)
+    setOrderCreatedAt(null)
+    
+    // Reset UI flags
+    setIsCheckingSms(false)
+    setIsOrderCancelled(false)
+    setIsOrderFinished(false)
+    setIsOtpVerified(true)
+    setIsOtpCopied(false)
+    setIsNumberCopied(false)
+    setIsReactivating(false)
+    setIsRetrying(false)
+    setRetryAttempts(0)
+    retryAttemptsRef.current = 0
+    
+    // Reset timers
+    setOtpTimeout(300)
+    setTimeLeft(300)
+    setIsTimeoutActive(false)
+    
+    // Clear any active intervals
+    if (smsCheckInterval.current) {
+      clearInterval(smsCheckInterval.current as unknown as number)
+      smsCheckInterval.current = null
+    }
+    
+    if (timeoutTimer) {
+      clearTimeout(timeoutTimer)
+      setTimeoutTimer(null)
+    }
+    
+    if (resetTimerRef.current) {
+      clearTimeout(resetTimerRef.current)
+      resetTimerRef.current = null
+    }
+    
+    if (countdownTimerRef.current) {
+      clearInterval(countdownTimerRef.current)
+      countdownTimerRef.current = null
+    }
+    
+    // Clear any saved transaction reference
+    savedTransaction.current = null
+    
+    // Clear any errors
+    setError(null)
+    
+    // Keep countries, products, and operators data loaded
+    // but we'll reset operators when product changes anyway
+    
+    toast.success("Ready for a new order", {
+      description: "You can now select a new service"
+    })
   }
 
   useEffect(() => {
@@ -289,12 +365,15 @@ const GetVirtualNumber = () => {
           })
           setOrderId(Number(session.order_id))
           setOrderStatus(session.status as OrderStatus)
-          setOrderCreatedAt(session.created_at)
+          setOrderCreatedAt(new Date(session.created_at))
 
           // If session is PENDING, restart SMS checking
           if (session.status === "PENDING") {
             setIsCheckingSms(true)
           }
+          
+          // Synchronize with the actual order status from 5SIM API
+          syncOrderStatus(session.order_id)
         }
       } catch (error) {
         console.error("Error loading active session:", error)
@@ -304,86 +383,152 @@ const GetVirtualNumber = () => {
     loadActiveSession()
   }, [user])
 
-  useEffect(() => {
-    if (number?.id && isCheckingSms) {
-      if (smsCheckInterval.current) {
-        clearInterval(smsCheckInterval.current)
-      }
-
-      const checkSms = async () => {
-        try {
-          console.log("Checking SMS for order:", number.id, "Attempt:", retryAttempts + 1)
-          const response = await getSmsCode(number.id)
-
-          console.log("SMS check response:", response)
-
-          if (response?.status === "CANCELED" || response?.status === "BANNED") {
-            clearInterval(smsCheckInterval.current!)
+  // Add a new function to synchronize local state with 5SIM API
+  const syncOrderStatus = async (orderId: string) => {
+    try {
+      // Get the current status from 5SIM API
+      const orderCheck = await getSmsCode(orderId.toString())
+      console.log("Syncing order status:", orderCheck)
+      
+      if (!orderCheck) return
+      
+      const currentStatus = orderCheck.status as OrderStatus
+      
+      // Update UI state based on status
+      setOrderStatus(currentStatus)
+      console.log("Updating status from API:", currentStatus)
+      
+      // Persist the updated status
+      updateOtpData({
+        orderStatus: currentStatus
+      })
+      
+      // Handle different statuses
+      switch (currentStatus) {
+        case "FINISHED":
+        case "BANNED":
+          setIsOrderFinished(true)
+          // Stop checking for SMS if we were still doing that
+          if (isCheckingSms) {
             setIsCheckingSms(false)
-            setOrderStatus(response.status)
-
-            // Update session status in database
-            const session = await getActiveOtpSession(user!.id)
-            if (session) {
-              await updateOtpSession(session.id, { status: response.status })
+            if (smsCheckInterval.current) {
+              clearInterval(smsCheckInterval.current as unknown as number)
+              smsCheckInterval.current = null
             }
-
-            return
           }
-
-          // Only increment retry attempts if we got a valid response
-          if (response) {
-            setRetryAttempts((prev) => prev + 1)
-          }
-
-          if (response?.sms && response.sms.length > 0) {
-            const sms = response.sms[0]
-            setSmsCode(sms.code)
-            setFullSms(sms.text)
-            setOrderStatus("RECEIVED")
-
-            // Update session in database with SMS code
-            const session = await getActiveOtpSession(user!.id)
-            if (session) {
-              await updateOtpSession(session.id, {
-                sms_code: sms.code,
-                full_sms: sms.text,
-                status: "RECEIVED",
-              })
-            }
-
-            clearInterval(smsCheckInterval.current!)
+          break;
+          
+        case "CANCELED":
+          setIsOrderCancelled(true)
+          // Stop checking for SMS if we were still doing that
+          if (isCheckingSms) {
             setIsCheckingSms(false)
-
-            // Process payment on successful OTP receipt
-            if (user && orderId && session && number) {
-              await handleSuccessfulOTP(user.id, session.transaction_id, number.id)
+            if (smsCheckInterval.current) {
+              clearInterval(smsCheckInterval.current as unknown as number)
+              smsCheckInterval.current = null
             }
-
-            toast.success("SMS Code Received!", {
-              description: `Code: ${sms.code}`,
+          }
+          break;
+          
+        case "RECEIVED":
+          // If we have SMS data but didn't capture it
+          if (orderCheck.sms && orderCheck.sms.length > 0) {
+            const latestSms = orderCheck.sms[orderCheck.sms.length - 1]
+            setSmsCode(latestSms.code)
+            setFullSms(latestSms.text)
+            
+            // Persist the SMS data
+            updateOtpData({
+              smsCode: latestSms.code,
+              fullSms: latestSms.text
             })
+            
+            toast.success("SMS Code Found!", {
+              description: `Your verification code is: ${latestSms.code}`,
+            });
+            
+            // Stop checking for SMS since we now have the SMS data
+            if (isCheckingSms) {
+              setIsCheckingSms(false)
+              if (smsCheckInterval.current) {
+                clearInterval(smsCheckInterval.current as unknown as number)
+                smsCheckInterval.current = null
+              }
+            }
+          } else {
+            // Status is RECEIVED but SMS array is empty - we need to check more aggressively
+            console.log("Status is RECEIVED but SMS array is empty, continuing to check for SMS content")
+            
+            // Make sure we're checking with higher frequency
+            if (smsCheckInterval.current) {
+              // Already checking - but we'll adjust frequency
+              clearInterval(smsCheckInterval.current as unknown as number)
+              console.log("Adjusting interval to check more frequently")
+              const moreFrequentInterval = setInterval(() => checkSms(Number(orderId)), 3000)
+              smsCheckInterval.current = moreFrequentInterval as unknown as NodeJS.Timeout
+            } else {
+              // Not checking yet - start checking with high frequency
+              console.log("Starting more frequent SMS checking")
+              setIsCheckingSms(true)
+              retryAttemptsRef.current = 0
+              setRetryAttempts(0)
+              // Start with immediate check followed by interval
+              checkSms(Number(orderId))
+              const moreFrequentInterval = setInterval(() => checkSms(Number(orderId)), 3000)
+              smsCheckInterval.current = moreFrequentInterval as unknown as NodeJS.Timeout
+            }
+            
+            // Notify user
+            toast.info("Provider confirmed OTP sent! Waiting for content to be available...")
           }
-        } catch (error: any) {
-          console.error("Error checking SMS:", error)
-          // Don't increment retry attempts on error
-          toast.error("Failed to check SMS status", {
-            description: error.message || "Will retry automatically...",
-          })
+          break;
+      }
+      
+      // Update database status if user is available
+      if (user) {
+        try {
+          await updateVirtualNumberStatus(
+            user.id, 
+            orderId, 
+            currentStatus,
+            currentStatus === "RECEIVED" && orderCheck.sms && orderCheck.sms.length > 0 
+              ? orderCheck.sms[orderCheck.sms.length - 1].code 
+              : undefined,
+            currentStatus === "RECEIVED" && orderCheck.sms && orderCheck.sms.length > 0
+              ? orderCheck.sms[orderCheck.sms.length - 1].text
+              : undefined
+          )
+        } catch (dbError) {
+          console.error("Error updating database during syncOrderStatus:", dbError)
+          // Non-critical, UI is already updated
         }
       }
-
-      checkSms()
-      smsCheckInterval.current = window.setInterval(checkSms, retryInterval)
-
-      return () => {
-        if (smsCheckInterval.current) {
-          clearInterval(smsCheckInterval.current)
-          smsCheckInterval.current = null
-        }
-      }
+      
+    } catch (error) {
+      console.error("Error syncing order status:", error)
     }
-  }, [number?.id, isCheckingSms, user, orderId, retryInterval, number, retryAttempts])
+  }
+
+  useEffect(() => {
+    if (orderId && isCheckingSms) {
+      // Only start checking if we have an orderId and isCheckingSms is true
+      // This makes the process more defensive
+      if (!smsCheckInterval.current) {
+        console.log("Starting SMS check from useEffect with orderId:", orderId);
+        startCheckingSms(orderId);
+      }
+    } else if (!orderId && isCheckingSms) {
+      // If we're supposed to be checking but have no orderId, log and stop
+      console.log("Cannot start SMS checking - no orderId available");
+      setIsCheckingSms(false);
+    } else if (orderId && orderStatus === "RECEIVED" && !smsCode && !smsCheckInterval.current) {
+      // Special case: if we have RECEIVED status but no SMS content, and not already checking
+      // This handles cases where the status was updated but checking stopped for some reason
+      console.log("Status is RECEIVED but no SMS content - resuming checking");
+      setIsCheckingSms(true);
+      startCheckingSms(orderId);
+    }
+  }, [orderId, isCheckingSms, orderStatus, smsCode]);
 
   useEffect(() => {
     let intervalId: NodeJS.Timeout | null = null
@@ -432,6 +577,48 @@ const GetVirtualNumber = () => {
     }
   }, [timeoutTimer])
 
+  // Add a new useEffect to initialize from persisted state (right after state declarations)
+  useEffect(() => {
+    if (otpData && otpData.orderId) {
+      // Initialize state from persisted data
+      setOrderId(Number(otpData.orderId));
+      
+      if (otpData.phoneNumber) {
+        setNumber({ phone: otpData.phoneNumber, id: otpData.orderId });
+      }
+      
+      if (otpData.smsCode) {
+        setSmsCode(otpData.smsCode);
+      }
+      
+      if (otpData.fullSms) {
+        setFullSms(otpData.fullSms);
+      }
+      
+      if (otpData.orderStatus) {
+        setOrderStatus(otpData.orderStatus as OrderStatus);
+      }
+
+      if (otpData.createdAt) {
+        setOrderCreatedAt(new Date(otpData.createdAt));
+      }
+      
+      // Start SMS checking in these scenarios:
+      // 1. Order status is PENDING - normal checking
+      // 2. Order status is RECEIVED but no SMS code - aggressive checking
+      if ((otpData.orderStatus === 'PENDING' || 
+          (otpData.orderStatus === 'RECEIVED' && !otpData.smsCode)) && 
+          !smsCheckInterval.current) {
+        
+        console.log(`Resuming SMS checking for ${otpData.orderStatus} order: ${otpData.orderId}`);
+        console.log(`SMS content available: ${Boolean(otpData.smsCode)}`);
+        
+        setIsCheckingSms(true);
+        startCheckingSms(otpData.orderId);
+      }
+    }
+  }, [otpData]);
+
   // Update handleGetNumber to create OTP session
   const handleGetNumber = async () => {
     if (!user || !user.id) {
@@ -463,9 +650,6 @@ const GetVirtualNumber = () => {
         throw new Error("Insufficient balance. Recharge now")
       }
 
-      // Clean up any stuck transactions first
-      await cleanupStuckTransactions(user.id)
-
       // Get virtual number - use 'auto' if no operator is selected
       const data = await getVirtualNumber(selectedCountry, selectedProduct, selectedOperator || "auto")
 
@@ -473,52 +657,68 @@ const GetVirtualNumber = () => {
         throw new Error(data.error)
       }
 
+      // Verify we have phone and id
       if (!data.phone || !data.id) {
-        throw new Error("Failed to get virtual number - invalid response")
+        throw new Error("Failed to get phone number")
       }
 
-      // Create pending transaction
-      const transaction = await createVirtualNumberTransaction(
+      console.log("Got virtual number:", { phone: data.phone, id: data.id })
+
+      // Store orderId immediately for SMS checking to use
+      const numericOrderId = Number(data.id);
+      setOrderId(numericOrderId);
+
+      // Create transaction record
+      const transactionRes = await createVirtualNumberTransaction(
         user.id,
         priceInINR,
         data.id,
         data.phone,
-        selectedProduct,
+        selectedProduct
       )
 
-      if (!transaction) {
-        throw new Error("Failed to create transaction")
-      }
+      // Store transaction reference for later use
+      savedTransaction.current = { id: transactionRes.id }
 
-      // Create OTP session in database
-      await createOtpSession(user.id, data.id, data.phone, selectedProduct, transaction.id)
+      // Create OTP session
+      await createOtpSession(
+        user.id,
+        data.id,
+        data.phone,
+        selectedProduct,
+        transactionRes.id
+      )
 
-      // Update persisted data
-      updateOtpData({
-        phoneNumber: data.phone,
-        orderId: data.id,
-        orderStatus: "PENDING",
-        createdAt: data.created_at ?? new Date().toISOString(),
-      })
-
+      // Set UI state
       setNumber({ phone: data.phone, id: data.id })
-      setOrderId(Number(data.id))
-      setOrderCreatedAt(data.created_at ?? null)
+      setOrderCreatedAt(new Date())
       setOrderStatus("PENDING")
+      
+      // Persist the order data
+      updateOtpData({
+        orderId: data.id.toString(),
+        phoneNumber: data.phone,
+        orderStatus: "PENDING",
+        createdAt: new Date().toISOString()
+      })
+      
+      // Start checking for SMS - but only after setting orderId and other state
+      console.log("Starting SMS check for order ID:", data.id);
       setIsCheckingSms(true)
+      startCheckingSms(data.id)
+
+      toast.success(`Virtual number purchased: ${data.phone}`, {
+        description: "Waiting for SMS code...",
+      })
 
       // After successful purchase, refresh wallet balance
       await refetchBalance()
-
-      toast.success("Virtual number received!", {
-        description: `Your number is: ${data.phone}`,
-      })
 
       // Set timeout for the entire order (15 minutes)
       const timer = setTimeout(async () => {
         if (orderId && user) {
           try {
-            await handleVirtualNumberRefund(user.id, transaction.id, "TIMEOUT")
+            await handleVirtualNumberRefund(user.id, transactionRes.id, "TIMEOUT")
             setOrderStatus("TIMEOUT")
             updateOtpData({ orderStatus: "TIMEOUT" })
             setIsCheckingSms(false)
@@ -538,75 +738,6 @@ const GetVirtualNumber = () => {
       }, orderTimeout)
 
       setTimeoutTimer(timer)
-
-      // Start checking for SMS
-      if (data.id) {
-        const intervalId = window.setInterval(async () => {
-          try {
-            if (retryAttempts >= maxRetryAttempts) {
-              clearInterval(intervalId)
-              setIsCheckingSms(false)
-              await handleVirtualNumberRefund(user.id, transaction.id, "TIMEOUT")
-              setOrderStatus("TIMEOUT")
-              updateOtpData({ orderStatus: "TIMEOUT" })
-              toast.error("No SMS received", {
-                description: "No SMS was received within 5 minutes. Your funds have been refunded.",
-              })
-              return
-            }
-
-            // Ensure data.id is not undefined before calling getSmsCode
-            if (!data.id) {
-              console.error("Order ID is missing")
-              return
-            }
-
-            const response = await getSmsCode(data.id)
-
-            if (!response) {
-              console.error("No response from SMS check")
-              return
-            }
-
-            console.log("SMS check response:", response)
-
-            if (response.sms && response.sms.length > 0) {
-              const sms = response.sms[0]
-              await handleSuccessfulOTP(user.id, transaction.id, data.id)
-              setSmsCode(sms.code)
-              setFullSms(sms.text)
-              setIsCheckingSms(false)
-              clearInterval(intervalId)
-
-              // Update session with SMS code and persist data
-              const session = await getActiveOtpSession(user.id)
-              if (session) {
-                await updateOtpSession(session.id, {
-                  sms_code: sms.code,
-                  full_sms: sms.text,
-                  status: "RECEIVED",
-                })
-
-                updateOtpData({
-                  smsCode: sms.code,
-                  fullSms: sms.text,
-                  orderStatus: "RECEIVED",
-                })
-              }
-
-              toast.success("SMS received!", {
-                description: `Your OTP code is: ${sms.code}`,
-              })
-            }
-
-            setRetryAttempts((prev) => prev + 1)
-          } catch (error) {
-            console.error("Error checking SMS:", error)
-          }
-        }, retryInterval)
-
-        smsCheckInterval.current = intervalId
-      }
     } catch (error: any) {
       console.error("Error getting virtual number:", error)
       setError(error.message || "An unexpected error occurred")
@@ -631,12 +762,12 @@ const GetVirtualNumber = () => {
         setError("No order ID to cancel or user not found.");
         return;
       }
-
-      // Get active session to get transaction ID
-      const session = await getActiveOtpSession(user.id);
-      if (!session) {
-        throw new Error("No active OTP session found");
-      }
+      
+      console.log("Starting cancellation process for order:", orderId);
+      
+      // Check for transaction ID first
+      const transactionId = savedTransaction.current?.id;
+      console.log("Transaction ID from context:", transactionId);
 
       // Cancel order in 5sim first
       const data = await cancelOrder(orderId);
@@ -644,45 +775,71 @@ const GetVirtualNumber = () => {
         throw new Error("Failed to cancel order in 5sim");
       }
 
-      // Process refund
-      await handleVirtualNumberRefund(user.id, session.transaction_id, "CANCELED");
-
-      // Delete OTP session since it's cancelled
-      await deleteOtpSession(session.id);
-
-      // Clear persisted data
-      clearOtpData();
-
-      // Update states
+      // Update UI state first, so even if database update fails, the UI reflects reality
       setNumber(null);
       setSmsCode(null);
-      setFullSms(null);
       setIsCheckingSms(false);
       setIsOrderCancelled(true);
       setOrderStatus("CANCELED");
-      setIsOrderFinished(true);
-      setSelectedCountry("");
-      setSelectedProduct("");
-      setSelectedOperator("");
-      setSelectedOperatorDetails(null);
-      setOrderId(null);
-      setOrderCreatedAt(null);
-      setRetryAttempts(0);
+      setIsOtpVerified(false);
+      setIsOrderFinished(false);
 
-      // Clear any remaining timers
-      if (timeoutTimer) {
-        clearTimeout(timeoutTimer);
-        setTimeoutTimer(null);
+      // Process the refund to wallet
+      let refundProcessed = false;
+      
+      if (savedTransaction.current?.id) {
+        try {
+          await handleVirtualNumberRefund(user.id, savedTransaction.current.id, "CANCELED");
+          refundProcessed = true;
+          toast.success("Order cancelled and balance refunded successfully");
+        } catch (refundError) {
+          console.error("Error processing refund:", refundError);
+          toast.error("Order cancelled but refund failed", {
+            description: "Please contact support if the issue persists."
+          });
+        }
+      } else {
+        console.warn("No transaction ID found in context for refund during cancellation");
+        
+        // Fallback: Try to find the transaction by order ID
+        try {
+          // Use updateVirtualNumberStatus which will look up the transaction and handle the refund
+          await updateVirtualNumberStatus(user.id, orderId.toString(), 'CANCELED');
+          refundProcessed = true;
+          toast.success("Order cancelled and balance refunded successfully");
+        } catch (statusError) {
+          console.error("Error updating status and processing refund:", statusError);
+          toast.warning("Order cancelled. Refund may be delayed", {
+            description: "Your balance will be updated shortly."
+          });
+        }
       }
-      if (smsCheckInterval.current) {
-        clearInterval(smsCheckInterval.current);
-        smsCheckInterval.current = null;
+      
+      if (!refundProcessed) {
+        toast.success("Order cancelled successfully");
       }
 
-      // Refresh wallet balance after refund
-      await refetchBalance()
+      // Update status in database, but don't block the UI on this
+      try {
+        // Update the status in persisted data before clearing
+        updateOtpData({
+          orderStatus: "CANCELED"
+        });
+        
+        await updateVirtualNumberStatus(user.id, orderId.toString(), 'CANCELED');
+        // Clear persisted data
+        clearOtpData();
+      } catch (dbError) {
+        console.error("Error updating database, but order was cancelled in 5sim:", dbError);
+        // Still clear the OTP data
+        clearOtpData();
+      }
 
-      toast.success("Order cancelled successfully. Your funds have been refunded.");
+      // Refresh wallet balance to reflect the refund
+      await refetchBalance();
+      
+      // Reset UI state to allow new selection
+      resetUIState();
     } catch (e: any) {
       console.error("Error cancelling order:", e);
       setError(e.message || "An unexpected error occurred.");
@@ -694,24 +851,24 @@ const GetVirtualNumber = () => {
 
   const handleBanNumber = async () => {
     setIsLoading(true)
-    setError(null)
     try {
-      if (!number?.id) {
-        setError("No number ID to ban.")
-        toast.error("No number ID to ban.")
+      if (!number?.id || !user) {
+        setError("No number to ban")
         return
       }
 
+      console.log("Starting ban process for order:", number.id);
+      
+      // Check for transaction ID first
+      const transactionId = savedTransaction.current?.id;
+      console.log("Transaction ID from context:", transactionId);
+      
+      // Attempt to ban the number in 5sim
       const data = await banOrder(Number(number.id))
       console.log("Ban number response:", data)
 
       if (data) {
-        // Clear persisted data
-        clearOtpData()
-        toast.success("Number banned successfully. This number cannot be used again.")
-
-        // Refresh wallet balance if there was a refund
-        await refetchBalance()
+        // Update UI state first
         setNumber(null)
         setSmsCode(null)
         setIsCheckingSms(false)
@@ -719,6 +876,58 @@ const GetVirtualNumber = () => {
         setOrderStatus("BANNED")
         setIsOtpVerified(false)
         setIsOrderFinished(true)
+        
+        // Process the refund to wallet
+        let refundProcessed = false;
+        
+        if (savedTransaction.current?.id) {
+          try {
+            await handleVirtualNumberRefund(user.id, savedTransaction.current.id, "BANNED");
+            refundProcessed = true;
+            toast.success("Number banned and balance refunded successfully");
+          } catch (refundError) {
+            console.error("Error processing refund during ban:", refundError);
+            toast.error("Number banned but refund failed", {
+              description: "Please contact support if the issue persists."
+            });
+          }
+        } else {
+          console.warn("No transaction ID found in context for refund during ban operation");
+          
+          // Fallback: Try to find the transaction by order ID
+          try {
+            // Use updateVirtualNumberStatus which will look up the transaction and handle the refund
+            await updateVirtualNumberStatus(user.id, number.id, 'BANNED');
+            refundProcessed = true;
+            toast.success("Number banned and balance refunded successfully");
+          } catch (statusError) {
+            console.error("Error updating status and processing refund:", statusError);
+            toast.warning("Number banned. Refund may be delayed", {
+              description: "Your balance will be updated shortly."
+            });
+          }
+        }
+        
+        if (!refundProcessed) {
+          toast.success("Number banned successfully.");
+        }
+        
+        // Update status in database, but don't block UI on this
+        try {
+          await updateVirtualNumberStatus(user.id, number.id, 'BANNED')
+          // Clear persisted data
+          clearOtpData()
+        } catch (dbError) {
+          console.error("Error updating database, but number was banned in 5sim:", dbError)
+          // Still clear OTP data
+          clearOtpData()
+        }
+        
+        // Refresh wallet balance to reflect any refund
+        await refetchBalance()
+        
+        // Reset UI state to allow new selection
+        resetUIState()
       } else {
         setError("Failed to ban number.")
         toast.error("Failed to ban number.")
@@ -729,6 +938,28 @@ const GetVirtualNumber = () => {
       toast.error(e.message || "An unexpected error occurred.")
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  // Add refresh function to handle out-of-sync state
+  const refreshComponent = async () => {
+    console.log("Refreshing component state...")
+    setError(null)
+    
+    // Only attempt to refresh if we have a user and an order ID
+    if (user && orderId) {
+      try {
+        // Get latest order status from API
+        await syncOrderStatus(orderId.toString())
+        
+        // Also refresh the wallet balance
+        await refetchBalance()
+        
+        toast.success("Status refreshed")
+      } catch (error) {
+        console.error("Error refreshing state:", error)
+        toast.error("Could not refresh status")
+      }
     }
   }
 
@@ -744,137 +975,135 @@ const GetVirtualNumber = () => {
       if (isOrderFinished) {
         return
       }
-
-      // Set temporary flag
-
-      // Get active session
-      const session = await getActiveOtpSession(user.id)
-      if (!session) {
-        throw new Error("No active OTP session found")
-      }
-
-      // First verify the order status in 5sim
-      const checkResponse = await getSmsCode(orderId.toString())
-      if (!checkResponse) {
-        throw new Error("Failed to verify order status")
-      }
-
-      // Check if order is already finished or cancelled
-      if (checkResponse.status === "FINISHED") {
-        toast.error("Order is already finished")
-        return
-      }
-
-      if (checkResponse.status === "CANCELED" || checkResponse.status === "BANNED") {
-        // Clean up local state and database since order is already cancelled in 5sim
-        await deleteOtpSession(session.id)
-        clearOtpData()
-
-        setNumber(null)
-        setSmsCode(null)
-        setFullSms(null)
-        setIsCheckingSms(false)
-        setIsOrderCancelled(true)
-        setOrderStatus(checkResponse.status)
+      
+      // First check the current status of the order
+      const orderCheck = await getSmsCode(orderId.toString())
+      console.log("Current order status check:", orderCheck)
+      
+      // If the order is already finished (possibly from admin panel)
+      if (orderCheck && (orderCheck.status === "FINISHED" || orderCheck.status === "BANNED")) {
+        console.log("Order already completed with status:", orderCheck.status)
+        
+        // Update UI state first
+        toast.success(`Order already marked as ${orderCheck.status.toLowerCase()} in the system.`)
+        setOrderStatus(orderCheck.status as OrderStatus)
         setIsOrderFinished(true)
-        setSelectedCountry("")
-        setSelectedProduct("")
-        setSelectedOperator("")
-        setSelectedOperatorDetails(null)
-        setOrderId(null)
-        setOrderCreatedAt(null)
-        setRetryAttempts(0)
-
-        // Clear any remaining timers
-        if (timeoutTimer) {
-          clearTimeout(timeoutTimer)
-          setTimeoutTimer(null)
-        }
+        
+        // Clear any timers
         if (smsCheckInterval.current) {
-          clearInterval(smsCheckInterval.current)
+          clearInterval(smsCheckInterval.current as unknown as number)
           smsCheckInterval.current = null
         }
-
-        toast.error(`Order was already ${checkResponse.status.toLowerCase()} in 5sim`)
+        
+        // Update status in database, but don't block UI
+        try {
+          await updateVirtualNumberStatus(user.id, orderId.toString(), orderCheck.status)
+          // Clear persisted data
+          clearOtpData()
+        } catch (dbError) {
+          console.error("Error updating database for already completed order:", dbError)
+          // Still clear OTP data
+          clearOtpData()
+        }
+        
+        // Reset UI state after a short delay
+        setTimeout(() => resetUIState(), 2000);
+        
         return
       }
 
-      // Try to finish the order in 5sim
+      // Finish order in 5sim
       const data = await finishOrder(orderId)
-      if (!data) {
-        throw new Error("Failed to finish order in 5sim")
-      }
+      console.log("Finish order response:", data)
 
-      // Add a delay and retry mechanism for verification
-      let verificationAttempts = 0
-      const maxVerificationAttempts = 3
-      const verificationDelay = 2000 // 2 seconds
-
-      while (verificationAttempts < maxVerificationAttempts) {
-        await new Promise((resolve) => setTimeout(resolve, verificationDelay))
-
-        const verifyResponse = await getSmsCode(orderId.toString())
-        if (verifyResponse && verifyResponse.status === "FINISHED") {
-          // Delete the OTP session since it's complete
-          await deleteOtpSession(session.id)
-
-          // Update wallet balance
-          await refetchBalance()
-
-          // Clear all persisted data
+      if (data) {
+        // Update UI state first
+        toast.success("Order marked as finished successfully.")
+        setOrderStatus("FINISHED")
+        setIsOrderFinished(true)
+        
+        // Clear any timers
+        if (smsCheckInterval.current) {
+          clearInterval(smsCheckInterval.current as unknown as number)
+          smsCheckInterval.current = null
+        }
+        
+        // Update status in database
+        try {
+          await updateVirtualNumberStatus(user.id, orderId.toString(), 'FINISHED')
+          // Clear persisted data
           clearOtpData()
-          toast.success("Order finished successfully.")
-
-          // Reset all state
-          setNumber(null)
-          setSmsCode(null)
-          setFullSms(null)
-          setIsCheckingSms(false)
-          setIsOrderCancelled(true)
-          setOrderStatus("FINISHED")
+        } catch (dbError) {
+          console.error("Error updating database after finishing order:", dbError)
+          // Still clear OTP data
+          clearOtpData()
+        }
+        
+        // Reset UI state after a short delay
+        setTimeout(() => resetUIState(), 2000);
+      } else {
+        // Handle the case where finishing fails but it could be already finished
+        // Check status again
+        const recheckedOrder = await getSmsCode(orderId.toString())
+        
+        if (recheckedOrder && (recheckedOrder.status === "FINISHED" || recheckedOrder.status === "BANNED")) {
+          // Order is already finished, so update our UI to match
+          toast.success(`Order was already ${recheckedOrder.status.toLowerCase()}.`)
+          setOrderStatus(recheckedOrder.status as OrderStatus)
           setIsOrderFinished(true)
-          setSelectedCountry("")
-          setSelectedProduct("")
-          setSelectedOperator("")
-          setSelectedOperatorDetails(null)
-          setOrderId(null)
-          setOrderCreatedAt(null)
-          setRetryAttempts(0)
-
-          // Clear any remaining timers
-          if (timeoutTimer) {
-            clearTimeout(timeoutTimer)
-            setTimeoutTimer(null)
-          }
+          
           if (smsCheckInterval.current) {
-            clearInterval(smsCheckInterval.current)
+            clearInterval(smsCheckInterval.current as unknown as number)
             smsCheckInterval.current = null
           }
-
-          return
+          
+          // Try to update database status
+          try {
+            await updateVirtualNumberStatus(user.id, orderId.toString(), recheckedOrder.status)
+            clearOtpData()
+          } catch (dbError) {
+            console.error("Error updating database for rechecked order:", dbError)
+            clearOtpData()
+          }
+          
+          // Reset UI state after a short delay
+          setTimeout(() => resetUIState(), 2000);
+        } else {
+          setError("Failed to finish order. Please try again or refresh the page.")
+          toast.error("Failed to finish order.")
+          
+          // Try to refresh the component state
+          await refreshComponent()
         }
-        verificationAttempts++
       }
-
-      throw new Error("Order completion could not be verified after multiple attempts")
     } catch (e: any) {
       console.error("Error finishing order:", e)
-      // Check if the error is due to the order being already cancelled
-      if (e.response?.status === 400) {
-        toast.error("Cannot finish order - it may have been cancelled or expired")
-        // Clean up the local state and database
-        if (user) {
-          const session = await getActiveOtpSession(user.id)
-          if (session) {
-            await deleteOtpSession(session.id)
-          }
-        }
-        clearOtpData()
-        setOrderStatus("CANCELED")
+      
+      // Special handling for common errors
+      if (e.message && e.message.includes("already finished")) {
+        toast.success("Order was already completed.")
+        setOrderStatus("FINISHED")
         setIsOrderFinished(true)
-      } else {
-        setError(e.message || "An unexpected error occurred.")
-        toast.error(e.message || "An unexpected error occurred.")
+        
+        // Also update in the database
+        try {
+          if (user && orderId) {
+            await updateVirtualNumberStatus(user.id, orderId.toString(), 'FINISHED')
+            clearOtpData()
+          }
+        } catch (dbError) {
+          console.error("Error updating database for already finished order:", dbError)
+          clearOtpData()
+        }
+        
+        // Clear any timers
+        if (smsCheckInterval.current) {
+          clearInterval(smsCheckInterval.current as unknown as number)
+          smsCheckInterval.current = null
+        }
+        
+        // Reset UI state after a short delay
+        setTimeout(() => resetUIState(), 2000);
       }
     } finally {
       setIsLoading(false)
@@ -882,23 +1111,45 @@ const GetVirtualNumber = () => {
   }
 
   const handleReactivate = async () => {
-    if (!orderId) return
-
     setIsReactivating(true)
     try {
-      const response = await reactivateOrder(orderId)
-      if (response) {
-        toast.success("Order reactivated successfully")
+      if (!orderId || !user) {
+        setError("No order ID to reactivate")
+        return
+      }
+
+      const data = await reactivateOrder(orderId)
+
+      if (data) {
+        // Update UI state first
         setOrderStatus("PENDING")
         setIsCheckingSms(true)
-        setIsTimeoutActive(true)
-        setTimeLeft(300)
-        setOtpTimeout(300)
+        setRetryAttempts(0)
+        setIsOtpVerified(false)
+        setIsOrderFinished(false)
+        setIsOrderCancelled(false)
+        setOrderCreatedAt(new Date())
+        
+        toast.success("Order reactivated successfully. Waiting for SMS...")
+        
+        // Start checking for SMS again
+        startCheckingSms(orderId)
+        
+        // Update status in database
+        try {
+          await updateVirtualNumberStatus(user.id, orderId.toString(), 'PENDING')
+        } catch (dbError) {
+          console.error("Error updating database after reactivating order:", dbError)
+          // This is not critical for functionality, so just log it
+        }
+      } else {
+        setError("Failed to reactivate order")
+        toast.error("Failed to reactivate order")
       }
-    } catch (error: any) {
-      console.error("Error reactivating order:", error)
-      toast.error("Failed to reactivate order")
-      setError(error.message)
+    } catch (e: any) {
+      console.error("Error reactivating order:", e)
+      setError(e.message || "An unexpected error occurred")
+      toast.error(e.message || "An unexpected error occurred")
     } finally {
       setIsReactivating(false)
     }
@@ -976,28 +1227,6 @@ const GetVirtualNumber = () => {
     }
   }
 
-  const handleCleanupTransactions = async () => {
-    if (!user) return
-
-    setIsCleaningUp(true)
-    try {
-      await cleanupStuckTransactions(user.id)
-      toast.success("Successfully cleaned up pending transactions")
-
-      // Refresh wallet balance after cleanup
-      await refetchBalance()
-    } catch (error: any) {
-      console.error("Error cleaning up transactions:", error)
-      toast.error("Failed to clean up transactions", {
-        description: error.message,
-      })
-    } finally {
-      setIsCleaningUp(false)
-    }
-  }
-
-  // Add debounce to wallet balance updates
-
   // Add loading skeleton for the selection section
   const SelectionSkeleton = () => (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -1028,6 +1257,304 @@ const GetVirtualNumber = () => {
       </CardContent>
     </Card>
   )
+
+  // Define checkSms function 
+  const checkSms = async (orderIdToUse: number) => {
+    // Safety check for orderIdToUse at the beginning
+    if (!orderIdToUse) {
+      console.error("Lost orderIdToUse during SMS check");
+      if (smsCheckInterval.current) {
+        clearInterval(smsCheckInterval.current as unknown as number);
+        smsCheckInterval.current = null;
+        setIsCheckingSms(false);
+      }
+      return;
+    }
+
+    retryAttemptsRef.current += 1;
+    // Update state for UI display
+    setRetryAttempts(retryAttemptsRef.current);
+    
+    try {
+      console.log(`[${retryAttemptsRef.current}] Checking SMS for order ${orderIdToUse}`);
+      const response = await getSmsCode(orderIdToUse.toString());
+      console.log("API response:", response);
+      
+      if (!response) {
+        console.log("No response from API, continuing to check...");
+        return;
+      }
+      
+      // Update order status based on response
+      if (response.status) {
+        setOrderStatus(response.status as OrderStatus);
+        
+        // Stop checking if order is cancelled or banned
+        if (response.status === "CANCELED") {
+          setIsOrderCancelled(true);
+          setIsCheckingSms(false);
+          if (smsCheckInterval.current) {
+            clearInterval(smsCheckInterval.current as unknown as number);
+            smsCheckInterval.current = null;
+          }
+          
+          toast.info("Order was cancelled");
+          
+          // Update local storage
+          updateOtpData({
+            orderStatus: "CANCELED"
+          });
+          
+          // Update database status - but don't stop on error
+          if (user) {
+            try {
+              await updateVirtualNumberStatus(
+                user.id, 
+                orderIdToUse.toString(), 
+                "CANCELED"
+              );
+            } catch (dbError) {
+              console.error("Error updating database after cancel:", dbError);
+              // Continue execution - non-critical database error
+            }
+          }
+          
+          return;
+        }
+        
+        if (response.status === "BANNED") {
+          setIsOrderCancelled(true);
+          setIsCheckingSms(false);
+          if (smsCheckInterval.current) {
+            clearInterval(smsCheckInterval.current as unknown as number);
+            smsCheckInterval.current = null;
+          }
+          
+          toast.error("Number was banned");
+          
+          // Update local storage
+          updateOtpData({
+            orderStatus: "BANNED"
+          });
+          
+          // Update database status - but don't stop on error
+          if (user) {
+            try {
+              await updateVirtualNumberStatus(
+                user.id, 
+                orderIdToUse.toString(), 
+                "BANNED"
+              );
+            } catch (dbError) {
+              console.error("Error updating database after ban:", dbError);
+              // Continue execution - non-critical database error
+            }
+          }
+          
+          return;
+        }
+      }
+      
+      // Check if SMS found
+      if (response.sms && response.sms.length > 0) {
+        const sms = response.sms[0];
+        console.log("SMS found:", sms);
+        
+        setSmsCode(sms.code);
+        setFullSms(sms.text);
+        setOrderStatus("RECEIVED");
+        setIsCheckingSms(false);
+        
+        if (smsCheckInterval.current) {
+          clearInterval(smsCheckInterval.current as unknown as number);
+          smsCheckInterval.current = null;
+        }
+        
+        toast.success("SMS Code Found!", {
+          description: `Your verification code is: ${sms.code}`,
+        });
+        
+        // Update local storage
+        updateOtpData({
+          smsCode: sms.code,
+          fullSms: sms.text,
+          orderStatus: "RECEIVED"
+        });
+        
+        // Update database status - don't stop on error
+        if (user) {
+          try {
+            await updateVirtualNumberStatus(
+              user.id, 
+              orderIdToUse.toString(), 
+              "RECEIVED", 
+              sms.code, 
+              sms.text
+            );
+          } catch (dbError) {
+            console.error("Error updating database after SMS received:", dbError);
+            // Still consider the SMS received for UI purposes
+          }
+          
+          // Mark transaction as successful - don't stop on error
+          if (savedTransaction.current?.id) {
+            try {
+              // The balance was already deducted during purchase, this just confirms the transaction as COMPLETED
+              console.log("Finalizing transaction for SMS received:", {
+                transactionId: savedTransaction.current.id,
+                orderId: orderIdToUse.toString()
+              });
+              
+              await handleSuccessfulOTP(user.id, savedTransaction.current.id, orderIdToUse.toString());
+              
+              // Refresh wallet balance to ensure UI is updated
+              await refetchBalance();
+            } catch (otpError) {
+              console.error("Error marking transaction as successful:", otpError);
+              // Non-critical for UI
+            }
+          }
+        }
+      } else if (response.status === "RECEIVED") {
+        // Status is RECEIVED but SMS array is empty - continue checking with higher frequency
+        console.log("Status is RECEIVED but SMS array is empty, continuing to check more aggressively...");
+        
+        // Update UI to show RECEIVED status
+        setOrderStatus("RECEIVED");
+        
+        // Update localStorage to reflect RECEIVED status
+        updateOtpData({
+          orderStatus: "RECEIVED"
+        });
+        
+        // Adjust check interval to check more frequently (every 3 seconds)
+        if (smsCheckInterval.current) {
+          clearInterval(smsCheckInterval.current as unknown as number);
+          const moreFrequentInterval = setInterval(() => checkSms(orderIdToUse), 3000); // Check every 3 seconds
+          smsCheckInterval.current = moreFrequentInterval as unknown as NodeJS.Timeout;
+        }
+        
+        // Only show toast notification periodically to avoid spamming
+        if (retryAttemptsRef.current % 3 === 0) {
+          toast.info("Provider confirmed OTP sent! Waiting for content...", {
+            description: "The system is actively checking for your verification code"
+          });
+        }
+        
+        // Update database status, but don't set smsCode or fullSms yet
+        // And don't stop execution on database error
+        if (user) {
+          try {
+            await updateVirtualNumberStatus(
+              user.id, 
+              orderIdToUse.toString(), 
+              "RECEIVED"
+            );
+          } catch (dbError) {
+            console.error("Error updating database to RECEIVED status:", dbError);
+            // Continue checking - database error is non-critical for this flow
+          }
+        }
+        
+        // Don't limit retries when status is RECEIVED - keep trying until we get the SMS
+        // Reset counter to avoid hitting maximum retries
+        retryAttemptsRef.current = Math.min(retryAttemptsRef.current, 10);
+      }
+      
+      // Check if we've exceeded max retries and status isn't RECEIVED
+      // (If status is RECEIVED we keep checking regardless of retry count)
+      if (retryAttemptsRef.current > 60 && response.status !== "RECEIVED") {
+        console.log("Max retry attempts reached");
+        setIsCheckingSms(false);
+        if (smsCheckInterval.current) {
+          clearInterval(smsCheckInterval.current as unknown as number);
+          smsCheckInterval.current = null;
+        }
+        toast.error("No SMS received after multiple attempts", {
+          description: "Please try again or contact support if the issue persists"
+        });
+      }
+    } catch (error) {
+      console.error("Error checking SMS:", error);
+      
+      // Don't stop checking on error, but log it
+      if (retryAttemptsRef.current > 60) {
+        console.log("Max retry attempts reached after errors");
+        setIsCheckingSms(false);
+        if (smsCheckInterval.current) {
+          clearInterval(smsCheckInterval.current as unknown as number);
+          smsCheckInterval.current = null;
+        }
+        toast.error("Error checking SMS after multiple attempts", {
+          description: "Please try again or contact support if the issue persists"
+        });
+      }
+    }
+  };
+
+  // Now define startCheckingSms to use the checkSms function
+  const startCheckingSms = (initialOrderId?: number | string) => {
+    // Use the provided initialOrderId, or fall back to the orderId from state
+    const orderIdToUse = initialOrderId ? Number(initialOrderId) : orderId;
+    
+    if (!orderIdToUse) {
+      console.error("Cannot start SMS check - no orderId available");
+      setIsCheckingSms(false);
+      return;
+    }
+    
+    // Reset retry counter when starting checks
+    retryAttemptsRef.current = 0;
+    setRetryAttempts(0);
+    
+    // Clear any existing interval first to prevent duplicates
+    if (smsCheckInterval.current) {
+      clearInterval(smsCheckInterval.current as unknown as number);
+      smsCheckInterval.current = null;
+    }
+    
+    // Check if we already know status is RECEIVED (from state)
+    const checkInterval = orderStatus === "RECEIVED" ? 3000 : 10000; // 3s for RECEIVED status, 10s for others
+    
+    console.log(`Starting SMS check for order ${orderIdToUse} with interval ${checkInterval}ms`);
+    
+    // Run checkSms immediately before setting interval
+    checkSms(orderIdToUse);
+    
+    // Set interval with appropriate frequency
+    const intervalId = setInterval(() => checkSms(orderIdToUse), checkInterval);
+    smsCheckInterval.current = intervalId as unknown as NodeJS.Timeout;
+  };
+
+  // Add a manual SMS check function
+  const manualSmsCheck = async () => {
+    if (!orderId) {
+      toast.error("No order ID available");
+      return;
+    }
+    
+    setIsLoading(true);
+    try {
+      // Use our existing checkSms function to perform the check
+      await checkSms(orderId);
+      
+      // If after the check we still don't have SMS content, but status is RECEIVED
+      if (!smsCode && orderStatus === "RECEIVED") {
+        toast.info("Status is RECEIVED but no SMS content is available yet. Will keep checking.");
+        
+        // Make sure we're still checking for SMS
+        if (!isCheckingSms) {
+          setIsCheckingSms(true);
+          startCheckingSms(orderId);
+        }
+      }
+    } catch (error) {
+      console.error("Error in manual SMS check:", error);
+      toast.error("Failed to check SMS manually");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <Card className="w-full max-w-4xl mx-auto">
@@ -1070,19 +1597,6 @@ const GetVirtualNumber = () => {
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-            <Button variant="outline" size="sm" onClick={handleCleanupTransactions} disabled={isCleaningUp}>
-              {isCleaningUp ? (
-                <div className="flex items-center gap-2">
-                  <Spinner className="h-4 w-4" />
-                  <span className="hidden sm:inline">Cleaning up...</span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <RefreshCw className="h-4 w-4" />
-                  <span className="hidden sm:inline">Clean Up Pending</span>
-                </div>
-              )}
-            </Button>
           </div>
         </div>
       </CardHeader>
@@ -1374,13 +1888,32 @@ const GetVirtualNumber = () => {
                       <Badge className="font-mono text-xs">{selectedCountry}</Badge>
                       <span className="font-mono text-base">{number.phone}</span>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleCopyToClipboard(number.phone, setIsNumberCopied)}
-                    >
-                      {isNumberCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={refreshComponent}
+                              disabled={isLoading}
+                            >
+                              <RefreshCw className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Refresh order status</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleCopyToClipboard(number.phone, setIsNumberCopied)}
+                      >
+                        {isNumberCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                      </Button>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
@@ -1539,6 +2072,23 @@ const GetVirtualNumber = () => {
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
+              
+              {/* Add manual SMS check button when status is RECEIVED with no SMS */}
+              {orderStatus === "RECEIVED" && !smsCode && (
+                <Button
+                  variant="secondary"
+                  onClick={manualSmsCheck}
+                  disabled={isLoading}
+                  className="w-full col-span-1 sm:col-span-2 mt-2"
+                >
+                  {isLoading ? (
+                    <Spinner className="h-4 w-4 mr-2" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                  )}
+                  Check for SMS Content
+                </Button>
+              )}
             </div>
           )}
 
