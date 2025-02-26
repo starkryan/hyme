@@ -770,9 +770,19 @@ const GetVirtualNumber = () => {
       console.log("Transaction ID from context:", transactionId);
 
       // Cancel order in 5sim first
-      const data = await cancelOrder(orderId);
-      if (!data) {
-        throw new Error("Failed to cancel order in 5sim");
+      let data;
+      try {
+        data = await cancelOrder(orderId);
+        if (!data) {
+          console.error("Empty response when cancelling order in 5sim");
+          toast.warning("Order cancellation sent but no confirmation received");
+        }
+      } catch (cancelError) {
+        console.error("Error cancelling order in 5sim:", cancelError);
+        toast.error("Could not cancel order in 5sim", {
+          description: "Will still attempt to update status locally."
+        });
+        // Continue with refund process even if 5sim API fails
       }
 
       // Update UI state first, so even if database update fails, the UI reflects reality
@@ -787,26 +797,35 @@ const GetVirtualNumber = () => {
       // Process the refund to wallet
       let refundProcessed = false;
       
+      // First try with the saved transaction ID
       if (savedTransaction.current?.id) {
         try {
+          console.log("Processing refund with saved transaction ID:", savedTransaction.current.id);
           await handleVirtualNumberRefund(user.id, savedTransaction.current.id, "CANCELED");
           refundProcessed = true;
           toast.success("Order cancelled and balance refunded successfully");
+          
+          // Refresh wallet balance to reflect the refund immediately
+          await refetchBalance();
         } catch (refundError) {
-          console.error("Error processing refund:", refundError);
-          toast.error("Order cancelled but refund failed", {
-            description: "Please contact support if the issue persists."
-          });
+          console.error("Error processing refund with saved transaction ID:", refundError);
+          // Will try fallback method next
         }
       } else {
         console.warn("No transaction ID found in context for refund during cancellation");
-        
-        // Fallback: Try to find the transaction by order ID
+      }
+      
+      // Fallback: Try to find the transaction by order ID if direct refund failed
+      if (!refundProcessed) {
         try {
+          console.log("Attempting fallback refund method with updateVirtualNumberStatus");
           // Use updateVirtualNumberStatus which will look up the transaction and handle the refund
           await updateVirtualNumberStatus(user.id, orderId.toString(), 'CANCELED');
           refundProcessed = true;
           toast.success("Order cancelled and balance refunded successfully");
+          
+          // Refresh wallet balance again
+          await refetchBalance();
         } catch (statusError) {
           console.error("Error updating status and processing refund:", statusError);
           toast.warning("Order cancelled. Refund may be delayed", {
@@ -816,7 +835,10 @@ const GetVirtualNumber = () => {
       }
       
       if (!refundProcessed) {
-        toast.success("Order cancelled successfully");
+        console.warn("All refund methods failed, will need manual intervention");
+        toast.warning("Order cancelled, but refund could not be processed", {
+          description: "Please contact support for assistance with your refund."
+        });
       }
 
       // Update status in database, but don't block the UI on this
@@ -834,9 +856,6 @@ const GetVirtualNumber = () => {
         // Still clear the OTP data
         clearOtpData();
       }
-
-      // Refresh wallet balance to reflect the refund
-      await refetchBalance();
       
       // Reset UI state to allow new selection
       resetUIState();
@@ -864,74 +883,90 @@ const GetVirtualNumber = () => {
       console.log("Transaction ID from context:", transactionId);
       
       // Attempt to ban the number in 5sim
-      const data = await banOrder(Number(number.id))
-      console.log("Ban number response:", data)
-
-      if (data) {
-        // Update UI state first
-        setNumber(null)
-        setSmsCode(null)
-        setIsCheckingSms(false)
-        setIsOrderCancelled(true)
-        setOrderStatus("BANNED")
-        setIsOtpVerified(false)
-        setIsOrderFinished(true)
-        
-        // Process the refund to wallet
-        let refundProcessed = false;
-        
-        if (savedTransaction.current?.id) {
-          try {
-            await handleVirtualNumberRefund(user.id, savedTransaction.current.id, "BANNED");
-            refundProcessed = true;
-            toast.success("Number banned and balance refunded successfully");
-          } catch (refundError) {
-            console.error("Error processing refund during ban:", refundError);
-            toast.error("Number banned but refund failed", {
-              description: "Please contact support if the issue persists."
-            });
-          }
-        } else {
-          console.warn("No transaction ID found in context for refund during ban operation");
-          
-          // Fallback: Try to find the transaction by order ID
-          try {
-            // Use updateVirtualNumberStatus which will look up the transaction and handle the refund
-            await updateVirtualNumberStatus(user.id, number.id, 'BANNED');
-            refundProcessed = true;
-            toast.success("Number banned and balance refunded successfully");
-          } catch (statusError) {
-            console.error("Error updating status and processing refund:", statusError);
-            toast.warning("Number banned. Refund may be delayed", {
-              description: "Your balance will be updated shortly."
-            });
-          }
+      let data;
+      try {
+        data = await banOrder(Number(number.id))
+        if (!data) {
+          console.error("Empty response when banning number in 5sim");
+          toast.warning("Ban request sent but no confirmation received");
         }
-        
-        if (!refundProcessed) {
-          toast.success("Number banned successfully.");
-        }
-        
-        // Update status in database, but don't block UI on this
-        try {
-          await updateVirtualNumberStatus(user.id, number.id, 'BANNED')
-          // Clear persisted data
-          clearOtpData()
-        } catch (dbError) {
-          console.error("Error updating database, but number was banned in 5sim:", dbError)
-          // Still clear OTP data
-          clearOtpData()
-        }
-        
-        // Refresh wallet balance to reflect any refund
-        await refetchBalance()
-        
-        // Reset UI state to allow new selection
-        resetUIState()
-      } else {
-        setError("Failed to ban number.")
-        toast.error("Failed to ban number.")
+      } catch (banError) {
+        console.error("Error banning number in 5sim:", banError);
+        toast.error("Could not ban number in 5sim", {
+          description: "Will still attempt to update status locally."
+        });
+        // Continue with refund process even if 5sim API fails
       }
+
+      // Update UI state first
+      setNumber(null)
+      setSmsCode(null)
+      setIsCheckingSms(false)
+      setIsOrderCancelled(true)
+      setOrderStatus("BANNED")
+      setIsOtpVerified(false)
+      setIsOrderFinished(true)
+      
+      // Process the refund to wallet
+      let refundProcessed = false;
+      
+      // First try with the saved transaction ID
+      if (savedTransaction.current?.id) {
+        try {
+          console.log("Processing refund with saved transaction ID:", savedTransaction.current.id);
+          await handleVirtualNumberRefund(user.id, savedTransaction.current.id, "BANNED");
+          refundProcessed = true;
+          toast.success("Number banned and balance refunded successfully");
+          
+          // Refresh wallet balance to reflect the refund immediately
+          await refetchBalance();
+        } catch (refundError) {
+          console.error("Error processing refund with saved transaction ID:", refundError);
+          // Will try fallback method next
+        }
+      } else {
+        console.warn("No transaction ID found in context for refund during ban operation");
+      }
+      
+      // Fallback: Try to find the transaction by order ID if direct refund failed
+      if (!refundProcessed) {
+        try {
+          console.log("Attempting fallback refund method with updateVirtualNumberStatus");
+          // Use updateVirtualNumberStatus which will look up the transaction and handle the refund
+          await updateVirtualNumberStatus(user.id, number.id, 'BANNED')
+          refundProcessed = true;
+          toast.success("Number banned and balance refunded successfully");
+          
+          // Refresh wallet balance again
+          await refetchBalance();
+        } catch (statusError) {
+          console.error("Error updating status and processing refund:", statusError);
+          toast.warning("Number banned. Refund may be delayed", {
+            description: "Your balance will be updated shortly."
+          });
+        }
+      }
+      
+      if (!refundProcessed) {
+        console.warn("All refund methods failed, will need manual intervention");
+        toast.warning("Number banned, but refund could not be processed", {
+          description: "Please contact support for assistance with your refund."
+        });
+      }
+      
+      // Update status in database, but don't block UI on this
+      try {
+        await updateVirtualNumberStatus(user.id, number.id, 'BANNED')
+        // Clear persisted data
+        clearOtpData()
+      } catch (dbError) {
+        console.error("Error updating database, but number was banned in 5sim:", dbError)
+        // Still clear OTP data
+        clearOtpData()
+      }
+      
+      // Reset UI state to allow new selection
+      resetUIState()
     } catch (e: any) {
       console.error("Error banning number:", e)
       setError(e.message || "An unexpected error occurred.")
@@ -2072,23 +2107,6 @@ const GetVirtualNumber = () => {
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
-              
-              {/* Add manual SMS check button when status is RECEIVED with no SMS */}
-              {orderStatus === "RECEIVED" && !smsCode && (
-                <Button
-                  variant="secondary"
-                  onClick={manualSmsCheck}
-                  disabled={isLoading}
-                  className="w-full col-span-1 sm:col-span-2 mt-2"
-                >
-                  {isLoading ? (
-                    <Spinner className="h-4 w-4 mr-2" />
-                  ) : (
-                    <RefreshCw className="h-4 w-4 mr-2" />
-                  )}
-                  Check for SMS Content
-                </Button>
-              )}
             </div>
           )}
 
