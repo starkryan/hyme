@@ -1,55 +1,33 @@
 "use client"
 
 import { useState } from 'react'
-import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
-import { Menu, Home, Wallet } from "lucide-react"
+import { Menu, Wallet, PhoneCall, Receipt, CreditCard } from "lucide-react"
 import { UserButton, useAuth, useUser } from "@clerk/nextjs"
 import Link from 'next/link'
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Separator } from "@/components/ui/separator"
-import { Skeleton } from "@/components/ui/skeleton"
-import { formatDistanceToNow } from "date-fns"
-import { getWalletBalance, getTransactionHistory } from "@/lib/walletService"
+import { getWalletBalance } from "@/lib/walletService"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { toast } from "sonner"
-import { supabase } from "@/lib/supabase"
-import { Loader2 } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
 
-interface Transaction {
-  id: string;
-  user_id: string;
-  amount: number;
-  type: 'CREDIT' | 'DEBIT';
-  description: string;
-  created_at: string;
-  reference_id: string;
-  status: 'PENDING' | 'COMPLETED' | 'FAILED';
-}
 
 const routes = [
-  {
-    label: 'OTPMaya',
-    icon: Home,
-    href: '/',
-  },
+  
   {
     label: 'Dashboard',
-    icon: Home,
+    icon: PhoneCall,
     href: '/dashboard',
   },
   {
     label: 'Transactions',
-    icon: Wallet,
+    icon: Receipt,
     href: '/transactions',
   },
   {
     label: 'Recharge',
-    icon: Wallet,
+    icon: CreditCard,
     href: '/recharge',
   },
 ]
@@ -103,11 +81,11 @@ export default function Navbar() {
         </Button>
 
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogContent>
+          <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
-              <DialogTitle>Wallet Balance</DialogTitle>
+              <DialogTitle  className="text-lg">Wallet Balance</DialogTitle>
               <DialogDescription>
-                Your current balance is ₹{walletBalance}
+                Current available balance in your account
               </DialogDescription>
             </DialogHeader>
             
@@ -133,41 +111,41 @@ export default function Navbar() {
     <header className="sticky top-0 w-full z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       {/* Mobile Navigation */}
       <div className="md:hidden flex items-center justify-between p-4 border-b">
-        <Sheet open={open} onOpenChange={setOpen}>
-          <SheetTrigger asChild>
-            <Button variant="ghost" size="icon">
-              <Menu className="h-6 w-6" />
-            </Button>
-          </SheetTrigger>
-          <SheetContent side="left" className="w-72">
-            <nav className="flex flex-col gap-4 mt-8">
-              {routes.map((route) => (
-                <Link
-                  key={route.href}
-                  href={route.href}
-                  onClick={() => setOpen(false)}
-                  className={cn(
-                    "flex items-center gap-2 p-3 text-sm hover:bg-accent rounded-lg transition-colors",
-                    "hover:text-accent-foreground"
-                  )}
-                >
-                  <route.icon className="h-5 w-5" />
-                  {route.label}
-                </Link>
-              ))}
-              {!isSignedIn && (
-                <div className="flex flex-col gap-2 mt-4">
-                  {authLinks}
-                </div>
-              )}
-            </nav>
-          </SheetContent>
-        </Sheet>
-        <div className="flex items-center gap-2">
+        <span className="font-bold text-xl text-primary">OTPMaya</span>
+        <div className="flex items-center gap-4">
           {isSignedIn && <WalletSheet />}
-          {isSignedIn ? (
-            <UserButton afterSignOutUrl="/" />
-          ) : null}
+          {isSignedIn && <UserButton afterSignOutUrl="/" />}
+          <Sheet open={open} onOpenChange={setOpen}>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="icon">
+                <Menu className="h-6 w-6" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="right" className="w-72">
+              <div className="font-bold text-xl mb-6 text-primary">OTPMaya</div>
+              <nav className="flex flex-col gap-4">
+                {routes.map((route) => (
+                  <Link
+                    key={route.href}
+                    href={route.href}
+                    onClick={() => setOpen(false)}
+                    className={cn(
+                      "flex items-center gap-2 p-3 text-sm hover:bg-accent rounded-lg transition-colors",
+                      "hover:text-accent-foreground"
+                    )}
+                  >
+                    <route.icon className="h-5 w-5" />
+                    {route.label}
+                  </Link>
+                ))}
+                {!isSignedIn && (
+                  <div className="flex flex-col gap-2 mt-4">
+                    {authLinks}
+                  </div>
+                )}
+              </nav>
+            </SheetContent>
+          </Sheet>
         </div>
       </div>
 
@@ -175,6 +153,7 @@ export default function Navbar() {
       <div className="hidden md:flex items-center justify-between p-4 border-b">
         <div className="container mx-auto flex items-center justify-between max-w-7xl">
           <nav className="flex items-center gap-6">
+            <span className="font-bold text-xl text-primary mr-8">OTPMaya</span>
             {routes.map((route) => (
               <Link
                 key={route.href}
@@ -184,7 +163,7 @@ export default function Navbar() {
                   "hover:text-accent-foreground"
                 )}
               >
-                <route.icon className="h-5 w-5" />
+                <route.icon className="h-4 w-4" />
                 {route.label}
               </Link>
             ))}

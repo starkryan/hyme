@@ -673,13 +673,16 @@ export const cancelOrder = async (orderId: number): Promise<OrderResponse | unde
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      const errorData = await response.text();
+      console.error(`Error response from cancel API (${response.status}):`, errorData);
+      throw new Error(`HTTP error! status: ${response.status}, details: ${errorData}`);
     }
 
     const data = await response.json();
     return data;
   } catch (error: any) {
     console.error('Failed to cancel order:', error);
+    // Don't throw here, just return undefined to let the component handle the fallback
     return undefined;
   }
 };

@@ -771,10 +771,14 @@ const GetVirtualNumber = () => {
 
       // Cancel order in 5sim first
       let data;
+      let cancelSuccessful = false;
       try {
         data = await cancelOrder(orderId);
-        if (!data) {
-          console.error("Empty response when cancelling order in 5sim");
+        if (data) {
+          console.log("5sim cancel operation successful:", data);
+          cancelSuccessful = true;
+        } else {
+          console.warn("Empty response when cancelling order in 5sim");
           toast.warning("Order cancellation sent but no confirmation received");
         }
       } catch (cancelError) {
@@ -803,7 +807,9 @@ const GetVirtualNumber = () => {
           console.log("Processing refund with saved transaction ID:", savedTransaction.current.id);
           await handleVirtualNumberRefund(user.id, savedTransaction.current.id, "CANCELED");
           refundProcessed = true;
-          toast.success("Order cancelled and balance refunded successfully");
+          toast.success(cancelSuccessful ? 
+            "Order cancelled and balance refunded successfully" : 
+            "Order marked as cancelled locally and balance refunded");
           
           // Refresh wallet balance to reflect the refund immediately
           await refetchBalance();
@@ -822,7 +828,9 @@ const GetVirtualNumber = () => {
           // Use updateVirtualNumberStatus which will look up the transaction and handle the refund
           await updateVirtualNumberStatus(user.id, orderId.toString(), 'CANCELED');
           refundProcessed = true;
-          toast.success("Order cancelled and balance refunded successfully");
+          toast.success(cancelSuccessful ? 
+            "Order cancelled and balance refunded successfully" : 
+            "Order marked as cancelled locally and balance refunded");
           
           // Refresh wallet balance again
           await refetchBalance();
@@ -862,7 +870,9 @@ const GetVirtualNumber = () => {
     } catch (e: any) {
       console.error("Error cancelling order:", e);
       setError(e.message || "An unexpected error occurred.");
-      toast.error(e.message || "An unexpected error occurred.");
+      toast.error("Error cancelling order", {
+        description: e.message || "An unexpected error occurred."
+      });
     } finally {
       setIsLoading(false);
     }
@@ -1264,11 +1274,11 @@ const GetVirtualNumber = () => {
 
   // Add loading skeleton for the selection section
   const SelectionSkeleton = () => (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
       {[1, 2, 3].map((i) => (
-        <div key={i} className="space-y-2">
-          <Skeleton className="h-4 w-20" />
-          <Skeleton className="h-10 w-full" />
+        <div key={i} className="space-y-1 sm:space-y-2">
+          <Skeleton className="h-3 sm:h-4 w-16 sm:w-20" />
+          <Skeleton className="h-9 sm:h-10 w-full" />
         </div>
       ))}
     </div>
@@ -1276,18 +1286,21 @@ const GetVirtualNumber = () => {
 
   // Add loading skeleton for the number display
   const NumberDisplaySkeleton = () => (
-    <Card className="mt-4">
-      <CardContent className="space-y-4 p-4">
-        <div className="flex items-center justify-between p-4 rounded-lg border">
+    <Card className="mt-2 sm:mt-4">
+      <CardContent className="space-y-3 sm:space-y-4 p-3 sm:p-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between p-2 sm:p-4 rounded-lg border gap-2 sm:gap-0">
           <div className="flex items-center gap-2">
-            <Skeleton className="h-5 w-16" />
-            <Skeleton className="h-5 w-32" />
+            <Skeleton className="h-4 w-12 sm:w-16" />
+            <Skeleton className="h-4 sm:h-5 w-24 sm:w-32" />
           </div>
-          <Skeleton className="h-8 w-8 rounded-md" />
+          <div className="flex items-center gap-2 self-end sm:self-auto">
+            <Skeleton className="h-8 w-8 rounded-md" />
+            <Skeleton className="h-8 w-8 rounded-md" />
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <Skeleton className="h-16 rounded-md" />
-          <Skeleton className="h-16 rounded-md" />
+          <Skeleton className="h-14 sm:h-16 rounded-md" />
+          <Skeleton className="h-14 sm:h-16 rounded-md" />
         </div>
       </CardContent>
     </Card>
@@ -1592,10 +1605,10 @@ const GetVirtualNumber = () => {
   };
 
   return (
-    <Card className="w-full max-w-4xl mx-auto">
-      <CardHeader className="sticky top-0 bg-background z-10 border-b">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <CardTitle className="text-2xl font-bold">Virtual Number Service</CardTitle>
+    <Card className="w-full max-w-4xl mx-auto overflow-hidden">
+      <CardHeader className="sticky top-0 bg-background z-10 border-b px-4 py-3 sm:p-6">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-4">
+          <CardTitle className="text-xl sm:text-2xl font-bold">Virtual Number Service</CardTitle>
           <div className="flex items-center gap-2">
             <TooltipProvider>
               <Tooltip>
@@ -1608,7 +1621,7 @@ const GetVirtualNumber = () => {
                     )}
                   >
                     <div className="flex items-center gap-2">
-                      <Wallet className="w-4 h-4" />
+                      <Wallet className="w-3 h-3 sm:w-4 sm:h-4" />
                       {isWalletLoading ? (
                         <Spinner className="h-3 w-3" />
                       ) : (
@@ -1617,7 +1630,7 @@ const GetVirtualNumber = () => {
                     </div>
                   </Badge>
                 </TooltipTrigger>
-                <TooltipContent>
+                <TooltipContent side="bottom">
                   <p>Current wallet balance</p>
                   <p className="text-xs text-muted-foreground">Auto-updates every 30s</p>
                   <Button 
@@ -1635,17 +1648,17 @@ const GetVirtualNumber = () => {
           </div>
         </div>
       </CardHeader>
-      <CardContent className="grid gap-6 p-4 sm:p-6">
+      <CardContent className="grid gap-4 sm:gap-6 p-3 sm:p-6">
         {/* Selection Section */}
         {isCountryLoading || isProductLoading ? (
           <SelectionSkeleton />
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
             {/* Country Selection */}
-            <div className="space-y-2">
-              <Label className="flex items-center gap-2 text-sm font-medium">
+            <div className="space-y-1 sm:space-y-2">
+              <Label className="flex items-center gap-2 text-xs sm:text-sm font-medium">
                 Country
-                {isCountryLoading && <Spinner className="h-4 w-4" />}
+                {isCountryLoading && <Spinner className="h-3 w-3 sm:h-4 sm:w-4" />}
               </Label>
               <Popover
                 open={countryOpen}
@@ -1659,11 +1672,11 @@ const GetVirtualNumber = () => {
                     variant="outline"
                     role="combobox"
                     aria-expanded={countryOpen}
-                    className="w-full justify-between"
+                    className="w-full justify-between h-9 sm:h-10 px-2 sm:px-3 text-xs sm:text-sm"
                     disabled={isCountryLoading}
                   >
                     {isCountryLoading ? (
-                      <Spinner className="h-4 w-4" />
+                      <Spinner className="h-3 w-3 sm:h-4 sm:w-4" />
                     ) : selectedCountry ? (
                       <div className="flex items-center justify-between w-full">
                         <span className="truncate">
@@ -1676,7 +1689,7 @@ const GetVirtualNumber = () => {
                     ) : (
                       <span className="text-muted-foreground">Select country</span>
                     )}
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    <ChevronsUpDown className="ml-1 sm:ml-2 h-3 w-3 sm:h-4 sm:w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
@@ -1685,10 +1698,11 @@ const GetVirtualNumber = () => {
                       placeholder="Search countries..."
                       value={countrySearchQuery}
                       onValueChange={setCountrySearchQuery}
+                      className="text-sm"
                     />
                     <CommandList>
                       <CommandEmpty>No countries found</CommandEmpty>
-                      <CommandGroup className="max-h-[300px] overflow-auto">
+                      <CommandGroup className="max-h-[40vh] overflow-auto">
                         {Array.isArray(filteredCountries) &&
                           filteredCountries.map((country) => (
                             <CommandItem
@@ -1698,12 +1712,12 @@ const GetVirtualNumber = () => {
                                 handleCountryChange(country.code)
                                 setCountryOpen(false)
                               }}
-                              className="flex items-center justify-between py-2"
+                              className="flex items-center justify-between py-1 sm:py-2 text-xs sm:text-sm"
                             >
                               <div className="flex items-center gap-2 min-w-0">
                                 <Check
                                   className={cn(
-                                    "h-4 w-4 shrink-0",
+                                    "h-3 w-3 sm:h-4 sm:w-4 shrink-0",
                                     selectedCountry === country.code ? "opacity-100" : "opacity-0",
                                   )}
                                 />
@@ -1724,8 +1738,8 @@ const GetVirtualNumber = () => {
             </div>
 
             {/* Service Selection */}
-            <div className="space-y-2">
-              <Label className="flex items-center gap-2 text-sm font-medium">Service for OTP</Label>
+            <div className="space-y-1 sm:space-y-2">
+              <Label className="flex items-center gap-2 text-xs sm:text-sm font-medium">Service for OTP</Label>
               <Popover
                 open={productOpen}
                 onOpenChange={(open) => {
@@ -1738,26 +1752,26 @@ const GetVirtualNumber = () => {
                     variant="outline"
                     role="combobox"
                     aria-expanded={productOpen}
-                    className="w-full justify-between"
+                    className="w-full justify-between h-9 sm:h-10 px-2 sm:px-3 text-xs sm:text-sm"
                     disabled={!selectedCountry || products.length === 0}
                   >
                     {!selectedCountry ? (
                       "Select country first"
                     ) : products.length === 0 ? (
-                      <Spinner className="h-4 w-4" />
+                      <Spinner className="h-3 w-3 sm:h-4 sm:w-4" />
                     ) : selectedProduct ? (
                       <div className="flex items-center justify-between w-full">
-                        <span className="capitalize">
+                        <span className="capitalize truncate">
                           {products.find((p) => p.id === selectedProduct)?.name.replace(/_/g, " ")}
                         </span>
-                        <Badge variant="secondary" className="font-mono text-xs whitespace-nowrap">
+                        <Badge variant="secondary" className="font-mono text-xs whitespace-nowrap ml-1">
                           {products.find((p) => p.id === selectedProduct)?.quantity || 0} avl
                         </Badge>
                       </div>
                     ) : (
                       "Select service"
                     )}
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    <ChevronsUpDown className="ml-1 sm:ml-2 h-3 w-3 sm:h-4 sm:w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
@@ -1766,10 +1780,11 @@ const GetVirtualNumber = () => {
                       placeholder="Search services..."
                       value={serviceSearchQuery}
                       onValueChange={setServiceSearchQuery}
+                      className="text-sm"
                     />
                     <CommandList>
                       <CommandEmpty>No service found.</CommandEmpty>
-                      <CommandGroup>
+                      <CommandGroup className="max-h-[40vh] overflow-auto">
                         {products.map((product) => (
                           <CommandItem
                             key={product.id}
@@ -1778,16 +1793,17 @@ const GetVirtualNumber = () => {
                               setSelectedProduct(product.id === selectedProduct ? "" : product.id)
                               setProductOpen(false)
                             }}
+                            className="text-xs sm:text-sm py-1 sm:py-2"
                           >
                             <div className="flex items-center justify-between w-full min-w-0">
                               <div className="flex items-center gap-2">
                                 <Check
                                   className={cn(
-                                    "h-4 w-4 shrink-0",
+                                    "h-3 w-3 sm:h-4 sm:w-4 shrink-0",
                                     selectedProduct === product.id ? "opacity-100" : "opacity-0",
                                   )}
                                 />
-                                <span className="capitalize">{product.name.replace(/_/g, " ")}</span>
+                                <span className="capitalize truncate">{product.name.replace(/_/g, " ")}</span>
                               </div>
                               <Badge variant="secondary" className="font-mono text-xs whitespace-nowrap">
                                 {product.quantity} avl
@@ -1803,25 +1819,25 @@ const GetVirtualNumber = () => {
             </div>
 
             {/* Operator Selection */}
-            <div className="space-y-2">
-              <Label className="flex items-center gap-2 text-sm font-medium">Operator</Label>
+            <div className="space-y-1 sm:space-y-2">
+              <Label className="flex items-center gap-2 text-xs sm:text-sm font-medium">Operator</Label>
               <Popover open={operatorOpen} onOpenChange={setOperatorOpen}>
                 <PopoverTrigger asChild>
                   <Button
                     variant="outline"
                     role="combobox"
                     aria-expanded={operatorOpen}
-                    className="w-full justify-between"
+                    className="w-full justify-between h-9 sm:h-10 px-2 sm:px-3 text-xs sm:text-sm"
                     disabled={!selectedProduct || operators.length === 0}
                   >
                     {!selectedProduct ? (
                       "Select service first"
                     ) : operators.length === 0 ? (
-                      <Spinner className="h-4 w-4" />
+                      <Spinner className="h-3 w-3 sm:h-4 sm:w-4" />
                     ) : selectedOperatorDetails ? (
                       <div className="flex items-center justify-between w-full">
                         <span className="capitalize truncate">{selectedOperatorDetails.displayName}</span>
-                        <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex items-center gap-1 sm:gap-2 shrink-0 ml-1">
                           <Badge variant={selectedOperatorDetails.rate >= 90 ? "secondary" : "outline"} className="font-mono text-xs whitespace-nowrap">
                             {selectedOperatorDetails.rate}%
                           </Badge>
@@ -1833,15 +1849,15 @@ const GetVirtualNumber = () => {
                     ) : (
                       "Select provider"
                     )}
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    <ChevronsUpDown className="ml-1 sm:ml-2 h-3 w-3 sm:h-4 sm:w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
                   <Command className="w-full">
-                    <CommandInput className="w-full" placeholder="Search providers..." />
+                    <CommandInput className="w-full text-sm" placeholder="Search providers..." />
                     <CommandList className="w-full">
                       <CommandEmpty>No provider found.</CommandEmpty>
-                      <CommandGroup className="max-h-[300px] overflow-auto">
+                      <CommandGroup className="max-h-[40vh] overflow-auto">
                         {operators.map((operator) => (
                           <CommandItem
                             key={operator.id}
@@ -1850,18 +1866,18 @@ const GetVirtualNumber = () => {
                               setSelectedOperator(operator.id === selectedOperator ? "" : operator.id)
                               setOperatorOpen(false)
                             }}
-                            className="flex items-center justify-between"
+                            className="flex items-center justify-between text-xs sm:text-sm py-1 sm:py-2"
                           >
                             <div className="flex items-center">
                               <Check
                                 className={cn(
-                                  "mr-2 h-4 w-4",
+                                  "mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4",
                                   selectedOperator === operator.id ? "opacity-100" : "opacity-0",
                                 )}
                               />
                               <span className="capitalize truncate">{operator.displayName}</span>
                             </div>
-                            <div className="flex items-center gap-2 shrink-0">
+                            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
                               <Badge variant={operator.rate >= 90 ? "secondary" : "outline"} className="font-mono text-xs whitespace-nowrap">
                                 {operator.rate}%
                               </Badge>
@@ -1880,29 +1896,29 @@ const GetVirtualNumber = () => {
           </div>
         )}
 
-        <Separator />
+        <Separator className="my-1 sm:my-2" />
 
         {/* Action Section */}
-        <div className="space-y-4">
+        <div className="space-y-3 sm:space-y-4">
           {/* Get Number Button */}
           {isLoading ? (
-            <Skeleton className="h-10 w-full sm:w-40" />
+            <Skeleton className="h-9 sm:h-10 w-full sm:w-40" />
           ) : (
             <Button
               onClick={handleGetNumber}
               disabled={isLoading || isOrderCancelled || !selectedOperator}
-              className="w-full sm:w-auto"
+              className="w-full sm:w-auto h-9 sm:h-10 text-xs sm:text-sm"
             >
               {isLoading ? (
                 <div className="flex items-center justify-center gap-2">
-                  <Spinner className="h-4 w-4" />
+                  <Spinner className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span>Getting Number...</span>
                 </div>
               ) : (
                 <div className="flex items-center justify-center gap-2">
                   <span>Get Virtual Number</span>
                   {selectedOperatorDetails && (
-                    <Badge variant="secondary" className="ml-2">
+                    <Badge variant="secondary" className="ml-1 sm:ml-2 text-xs">
                       ₹{convertToINR(selectedOperatorDetails.cost)}
                     </Badge>
                   )}
@@ -1916,14 +1932,14 @@ const GetVirtualNumber = () => {
             <NumberDisplaySkeleton />
           ) : (
             number && (
-              <Card className="mt-4">
-                <CardContent className="space-y-4 p-4">
-                  <div className="flex items-center justify-between p-4 rounded-lg border">
+              <Card className="mt-2 sm:mt-4">
+                <CardContent className="space-y-3 sm:space-y-4 p-3 sm:p-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between p-2 sm:p-4 rounded-lg border gap-2 sm:gap-0">
                     <div className="flex items-center gap-2">
                       <Badge className="font-mono text-xs">{selectedCountry}</Badge>
-                      <span className="font-mono text-base">{number.phone}</span>
+                      <span className="font-mono text-sm sm:text-base break-all">{number.phone}</span>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 self-end sm:self-auto">
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
@@ -1932,11 +1948,12 @@ const GetVirtualNumber = () => {
                               size="icon"
                               onClick={refreshComponent}
                               disabled={isLoading}
+                              className="h-8 w-8"
                             >
-                              <RefreshCw className="h-4 w-4" />
+                              <RefreshCw className="h-3 w-3 sm:h-4 sm:w-4" />
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>
+                          <TooltipContent side="bottom">
                             <p>Refresh order status</p>
                           </TooltipContent>
                         </Tooltip>
@@ -1945,8 +1962,9 @@ const GetVirtualNumber = () => {
                         variant="ghost"
                         size="icon"
                         onClick={() => handleCopyToClipboard(number.phone, setIsNumberCopied)}
+                        className="h-8 w-8"
                       >
-                        {isNumberCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                        {isNumberCopied ? <Check className="h-3 w-3 sm:h-4 sm:w-4" /> : <Copy className="h-3 w-3 sm:h-4 sm:w-4" />}
                       </Button>
                     </div>
                   </div>
@@ -1954,12 +1972,12 @@ const GetVirtualNumber = () => {
                   <div className="grid grid-cols-2 gap-2">
                     <div className="flex flex-col items-center justify-center p-2 rounded-md border">
                       <span className="text-xs text-muted-foreground">Order ID</span>
-                      <span className="font-medium text-sm truncate">{number.id}</span>
+                      <span className="font-medium text-xs sm:text-sm truncate">{number.id}</span>
                     </div>
                     {orderCreatedAt && (
                       <div className="flex flex-col items-center justify-center p-2 rounded-md border">
                         <span className="text-xs text-muted-foreground">Time</span>
-                        <span className="font-medium text-sm truncate">
+                        <span className="font-medium text-xs sm:text-sm truncate">
                           {new Date(orderCreatedAt).toLocaleTimeString('en-IN', {
                             hour: '2-digit',
                             minute: '2-digit',
@@ -1983,16 +2001,16 @@ const GetVirtualNumber = () => {
           {/* Waiting for OTP */}
           {(isCheckingSms || isRetrying) && !smsCode && (
             <Card>
-              <CardContent className="space-y-3 p-4">
+              <CardContent className="space-y-2 sm:space-y-3 p-3 sm:p-4">
                 <div className="flex items-center justify-center gap-2">
-                  <Spinner className="h-4 w-4" />
-                  <span className="text-sm font-medium">
+                  <Spinner className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span className="text-xs sm:text-sm font-medium">
                     {isRetrying ? `Checking for SMS (${retryAttempts + 1}/${maxRetryAttempts})` : "Waiting for OTP..."}
                   </span>
                 </div>
                 {isTimeoutActive && timeLeft !== null && otpTimeout !== null && (
-                  <div className="space-y-2">
-                    <Progress value={((otpTimeout - timeLeft) / otpTimeout) * 100} className="h-2" />
+                  <div className="space-y-1 sm:space-y-2">
+                    <Progress value={((otpTimeout - timeLeft) / otpTimeout) * 100} className="h-1 sm:h-2" />
                     <p className="text-xs text-center text-muted-foreground">
                       Expires in: {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, "0")}
                     </p>
@@ -2005,13 +2023,13 @@ const GetVirtualNumber = () => {
           {/* Display SMS Code */}
           {smsCode && (
             <Card>
-              <CardContent className="space-y-3 p-4">
-                <div className="flex items-center justify-between rounded-md border p-3">
+              <CardContent className="space-y-2 sm:space-y-3 p-3 sm:p-4">
+                <div className="flex items-center justify-between rounded-md border p-2 sm:p-3">
                   <div className="flex-grow flex items-center gap-2">
                     <Badge variant="secondary" className="text-xs font-medium">
                       OTP Code
                     </Badge>
-                    <span className="text-lg font-medium tracking-wider">{smsCode}</span>
+                    <span className="text-base sm:text-lg font-medium tracking-wider">{smsCode}</span>
                   </div>
                   <TooltipProvider>
                     <Tooltip>
@@ -2021,12 +2039,12 @@ const GetVirtualNumber = () => {
                           size="icon"
                           onClick={() => handleCopyToClipboard(smsCode, setIsOtpCopied)}
                           disabled={isOtpCopied}
-                          className="h-8 w-8"
+                          className="h-7 w-7 sm:h-8 sm:w-8"
                         >
-                          {isOtpCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                          {isOtpCopied ? <Check className="h-3 w-3 sm:h-4 sm:w-4" /> : <Copy className="h-3 w-3 sm:h-4 sm:w-4" />}
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>
+                      <TooltipContent side="bottom">
                         <p>Copy OTP to clipboard</p>
                       </TooltipContent>
                     </Tooltip>
@@ -2034,11 +2052,11 @@ const GetVirtualNumber = () => {
                 </div>
 
                 {fullSms && (
-                  <div className="rounded-md border p-3">
-                    <Badge variant="outline" className="text-xs mb-2">
+                  <div className="rounded-md border p-2 sm:p-3">
+                    <Badge variant="outline" className="text-xs mb-1 sm:mb-2">
                       Full Message
                     </Badge>
-                    <p className="text-sm text-muted-foreground">{fullSms}</p>
+                    <p className="text-xs sm:text-sm text-muted-foreground break-words">{fullSms}</p>
                   </div>
                 )}
               </CardContent>
@@ -2048,9 +2066,9 @@ const GetVirtualNumber = () => {
           {/* Error Display */}
           {error && (
             <Card className="bg-destructive">
-              <CardContent className="flex items-center gap-2 p-3">
-                <AlertTriangle className="h-4 w-4" />
-                <p className="text-sm">{error}</p>
+              <CardContent className="flex items-center gap-2 p-2 sm:p-3">
+                <AlertTriangle className="h-3 w-3 sm:h-4 sm:w-4 shrink-0" />
+                <p className="text-xs sm:text-sm break-words">{error}</p>
               </CardContent>
             </Card>
           )}
@@ -2065,19 +2083,19 @@ const GetVirtualNumber = () => {
                       variant="outline"
                       onClick={handleBanNumber}
                       disabled={isLoading || isOrderCancelled || isOrderFinished}
-                      className="w-full"
+                      className="w-full h-9 sm:h-10 text-xs sm:text-sm"
                     >
                       {isLoading ? (
-                        <Spinner className="h-4 w-4" />
+                        <Spinner className="h-3 w-3 sm:h-4 sm:w-4" />
                       ) : (
-                        <div className="flex items-center justify-center gap-2">
-                          <Ban className="h-4 w-4" />
+                        <div className="flex items-center justify-center gap-1 sm:gap-2">
+                          <Ban className="h-3 w-3 sm:h-4 sm:w-4" />
                           <span>Ban</span>
                         </div>
                       )}
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>
+                  <TooltipContent side="bottom">
                     <p>Ban this number if you received spam</p>
                   </TooltipContent>
                 </Tooltip>
@@ -2090,41 +2108,24 @@ const GetVirtualNumber = () => {
                       variant="outline"
                       onClick={handleCancelOrder}
                       disabled={isLoading || isOrderCancelled || isOrderFinished}
-                      className="w-full"
+                      className="w-full h-9 sm:h-10 text-xs sm:text-sm"
                     >
                       {isLoading ? (
-                        <Spinner className="h-4 w-4" />
+                        <Spinner className="h-3 w-3 sm:h-4 sm:w-4" />
                       ) : (
-                        <div className="flex items-center justify-center gap-2">
-                          <XCircle className="h-4 w-4" />
+                        <div className="flex items-center justify-center gap-1 sm:gap-2">
+                          <XCircle className="h-3 w-3 sm:h-4 sm:w-4" />
                           <span>Cancel</span>
                         </div>
                       )}
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>
+                  <TooltipContent side="bottom">
                     <p>Cancel this order</p>
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
             </div>
-          )}
-
-          {/* Reactivate Button */}
-          {orderStatus === "TIMEOUT" && !isOrderFinished && (
-            <Button variant="outline" onClick={handleReactivate} disabled={isReactivating} className="w-full">
-              {isReactivating ? (
-                <div className="flex items-center justify-center gap-2">
-                  <Spinner className="h-4 w-4" />
-                  <span>Reactivating...</span>
-                </div>
-              ) : (
-                <div className="flex items-center justify-center gap-2">
-                  <RefreshCw className="h-4 w-4" />
-                  <span>Reactivate Order</span>
-                </div>
-              )}
-            </Button>
           )}
 
           {/* Finish Button */}
@@ -2133,16 +2134,16 @@ const GetVirtualNumber = () => {
               variant="default"
               onClick={handleFinishOrder}
               disabled={isLoading || isOrderCancelled || isOrderFinished}
-              className="w-full"
+              className="w-full h-9 sm:h-10 text-xs sm:text-sm"
             >
               {isLoading ? (
-                <div className="flex items-center justify-center gap-2">
-                  <Spinner className="h-4 w-4" />
+                <div className="flex items-center justify-center gap-1 sm:gap-2">
+                  <Spinner className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span>Finishing...</span>
                 </div>
               ) : (
-                <div className="flex items-center justify-center gap-2">
-                  <CircleCheck className="h-4 w-4" />
+                <div className="flex items-center justify-center gap-1 sm:gap-2">
+                  <CircleCheck className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span>Complete Order</span>
                 </div>
               )}

@@ -38,8 +38,8 @@ const LoadingSkeleton = () => {
 
 function Hero() {
   return (
-    <div className="min-h-screen flex flex-col">
-      <main className="flex-grow">
+    <div className="w-full">
+      <main className="w-full">
         <Suspense fallback={<LoadingSkeleton />}>
           {/* <Hero /> */}
           <HeroDemo />
