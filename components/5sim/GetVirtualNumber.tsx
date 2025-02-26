@@ -1680,11 +1680,13 @@ const GetVirtualNumber = () => {
                     ) : selectedCountry ? (
                       <div className="flex items-center justify-between w-full">
                         <span className="truncate">
-                          {countries.find((country) => country.code === selectedCountry)?.name}
+                          {(() => {
+                            const country = countries.find((c) => c.code === selectedCountry);
+                            return country ? 
+                              country.name.charAt(0).toUpperCase() + country.name.slice(1).toLowerCase() :
+                              selectedCountry;
+                          })()}
                         </span>
-                        <Badge variant="secondary" className="font-mono text-xs">
-                          {countries.find((country) => country.code === selectedCountry)?.code}
-                        </Badge>
                       </div>
                     ) : (
                       <span className="text-muted-foreground">Select country</span>
@@ -1718,14 +1720,16 @@ const GetVirtualNumber = () => {
                                 <Check
                                   className={cn(
                                     "h-3 w-3 sm:h-4 sm:w-4 shrink-0",
-                                    selectedCountry === country.code ? "opacity-100" : "opacity-0",
+                                    selectedCountry === country.prefix ? "opacity-100" : "opacity-0",
                                   )}
                                 />
-                                <span className="truncate capitalize">{country.name}</span>
+                                <span className="truncate capitalize">
+                                  {country.name.charAt(0).toUpperCase() + country.name.slice(1).toLowerCase()}
+                                </span>
                               </div>
                               <div className="flex items-center gap-2 shrink-0 ml-2">
                                 <Badge variant="secondary" className="font-mono text-xs">
-                                  {country.code}
+                                  {country.prefix}
                                 </Badge>
                               </div>
                             </CommandItem>
@@ -1940,24 +1944,7 @@ const GetVirtualNumber = () => {
                       <span className="font-mono text-sm sm:text-base break-all">{number.phone}</span>
                     </div>
                     <div className="flex items-center gap-2 self-end sm:self-auto">
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={refreshComponent}
-                              disabled={isLoading}
-                              className="h-8 w-8"
-                            >
-                              <RefreshCw className="h-3 w-3 sm:h-4 sm:w-4" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent side="bottom">
-                            <p>Refresh order status</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
+                      
                       <Button
                         variant="ghost"
                         size="icon"

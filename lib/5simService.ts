@@ -323,7 +323,7 @@ export const normalizeCountryInput = (country: string): string => {
 export const getProducts = async (country: string): Promise<{ products: Product[]; error?: string }> => {
   try {
     const normalizedCountry = normalizeCountryInput(country);
-    console.log(`Fetching products for country: ${country} (normalized: ${normalizedCountry})`);
+    console.log(`Fetching products for country code: ${country} (normalized: ${normalizedCountry})`);
 
     // Use our API route instead of direct API call
     const url = `/api/products?country=${normalizedCountry}`;
