@@ -9,6 +9,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  // Verify API key exists
+  if (!API_KEY) {
+    return res.status(500).json({ error: 'API key is not configured' });
+  }
+
   const { id } = req.query;
 
   if (!id || typeof id !== 'string') {
@@ -16,7 +21,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    console.log(`Server-side banning order ID: ${id}`);
+    // Removed console.log for deployment
     
     const response = await axios.get(`${API_URL}/user/ban/${id}`, {
       headers: {
@@ -25,7 +30,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     });
 
-    console.log('Server-side ban order response received');
+    // Removed console.log for deployment
 
     if (!response.data) {
       throw new Error('No data received from ban order API');
@@ -34,11 +39,35 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json(response.data);
     
   } catch (error: any) {
-    console.error('Server-side error banning order:', {
-      message: error.message,
-      response: error.response?.data,
-      status: error.response?.status
-    });
+    // Removed detailed console.error for deployment
+    
+    // Check if the error is "order not found" which means it's already in a final state
+    const errorDetails = error.response?.data;
+    const errorMessage = typeof errorDetails === 'string' 
+      ? errorDetails 
+      : errorDetails?.message || error.message;
+    
+    if (errorMessage?.includes('order not found')) {
+      // For "order not found" errors, return a success response
+      // since this is not really an error from the user's perspective
+      return res.status(200).json({ 
+        id: parseInt(id),
+        status: "BANNED",
+        message: "Order was already processed"
+      });
+    }
+
+    // Specific handling for 400 errors (likely SMS already received or order in final state)
+    if (error.response?.status === 400) {
+      const errorMessage = error.response?.data?.message || 
+                          'Order cannot be banned, possibly because SMS was already received';
+      
+      return res.status(400).json({ 
+        error: 'Order cannot be banned',
+        details: errorMessage,
+        reason: 'SMS_RECEIVED'
+      });
+    }
 
     return res.status(error.response?.status || 500).json({ 
       error: 'Failed to ban order',

@@ -19,10 +19,10 @@ import {
   createVirtualNumberTransaction,
   handleSuccessfulOTP,
   handleVirtualNumberRefund,
-  canPurchaseNumber,
-  updateVirtualNumberStatus,
   updateWalletBalance,
   createTransaction,
+  updateVirtualNumberStatus,
+  canPurchaseNumber,
 } from "@/lib/walletService"
 
 import { Button } from "@/components/ui/button"
@@ -124,6 +124,9 @@ const GetVirtualNumber = () => {
   const [timeoutTimer, setTimeoutTimer] = useState<NodeJS.Timeout | null>(null)
   const [isReactivating, setIsReactivating] = useState(false)
   const smsCheckInterval = useRef<NodeJS.Timeout | null>(null)
+  // Add refs for tracking toast notification state
+  const hasShownReceivedStatusToast = useRef<boolean>(false)
+  const isPollingAutomatically = useRef<boolean>(false)
   const [isOrderCancelled, setIsOrderCancelled] = useState(false)
   const [fullSms, setFullSms] = useState<string | null>(null)
   const [isNumberCopied, setIsNumberCopied] = useState(false)
@@ -340,56 +343,33 @@ const GetVirtualNumber = () => {
     setSmsCode(null)
     setFullSms(null)
     setOrderId(null)
-    setOrderStatus(null)
+    setOrderStatus(null as any)
     setOrderCreatedAt(null)
+    setIsOtpVerified(false)
     
-    // Reset UI flags
-    setIsCheckingSms(false)
+    // Reset UI state flags
     setIsOrderCancelled(false)
     setIsOrderFinished(false)
-    setIsOtpVerified(true)
-    setIsOtpCopied(false)
-    setIsNumberCopied(false)
-    setIsReactivating(false)
-    setIsRetrying(false)
-    setRetryAttempts(0)
-    retryAttemptsRef.current = 0
-    
-    // Reset timers
-    setOtpTimeout(300)
-    setTimeLeft(300)
+    setIsCheckingSms(false)
     setIsTimeoutActive(false)
+    setActiveProductName("") // Reset the active product name
     
-    // Clear any active intervals
+    // Clear timers
     if (smsCheckInterval.current) {
-      clearInterval(smsCheckInterval.current as unknown as number)
-      smsCheckInterval.current = null
+      clearInterval(smsCheckInterval.current);
+      smsCheckInterval.current = null;
     }
     
     if (timeoutTimer) {
-      clearTimeout(timeoutTimer)
-      setTimeoutTimer(null)
+      clearTimeout(timeoutTimer);
+      setTimeoutTimer(null);
     }
-    
-    if (resetTimerRef.current) {
-      clearTimeout(resetTimerRef.current)
-      resetTimerRef.current = null
-    }
-    
-    if (countdownTimerRef.current) {
-      clearInterval(countdownTimerRef.current)
-      countdownTimerRef.current = null
-    }
-    
-    // Clear any saved transaction reference
-    savedTransaction.current = null
     
     // Clear any errors
-    setError(null)
+    setError(null);
     
-    // Clear persisted data
-    clearOtpData()
-    setActiveProductName(undefined);
+    // Clear persisted OTP data
+    clearOtpData();
   }
 
   useEffect(() => {
@@ -568,23 +548,29 @@ const GetVirtualNumber = () => {
 
   // Add a new function to synchronize local state with 5SIM API
   const syncOrderStatus = async (orderId: string) => {
-    console.log(`Syncing order status for order: ${orderId}`);
+    // Removed console.log for deployment
     
     try {
       setIsCheckingSms(true);
       
       const response = await getSmsCode(orderId);
-      console.log("API response:", response);
+      // Removed console.log for deployment
       
       // Handle response being undefined
       if (!response) {
-        console.warn("No response received from the API");
+        // Removed console.warn for deployment
         return null;
       }
       
       // Update state with order details
       setOrderStatus(response.status);
       setOrderCreatedAt(new Date(response.created_at));
+      
+      // Update product name from API response if available
+      if (response.product) {
+        // Removed console.log for deployment
+        setActiveProductName(response.product.replace(/_/g, " "));
+      }
       
       // Check if SMS has been received
       if (response?.sms && response.sms.length > 0) {
@@ -611,9 +597,41 @@ const GetVirtualNumber = () => {
       }
 
       return response;
-    } catch (error) {
-      console.error("Error syncing order status:", error);
-      setError("Failed to check order status. Please try again.");
+    } catch (error: any) {
+      // Removed console.error for deployment
+      
+      // Handle "order not found" errors gracefully
+      if (error.message?.includes('order not found')) {
+        // If order is not found, it may have been cancelled or completed
+        // Just stop checking and don't show error toast
+        cleanupTimers();
+        return null;
+      }
+      
+      // Handle different types of errors with helpful messages
+      // For deployment, only show these if not in automatic polling mode
+      if (!isPollingAutomatically.current) {
+        if (error.message?.includes('non-JSON response')) {
+          setError("API authentication error. Please check your API credentials in the environment variables.");
+          toast.error("API authentication error", {
+            description: "Your 5sim API key may be invalid or expired."
+          });
+        } else if (error.message?.includes('Failed to parse API response')) {
+          setError("Error reading response from 5sim. The service might be experiencing issues.");
+          toast.error("Could not read 5sim response", {
+            description: "Try again later or contact support if this persists."
+          });
+        } else if (error.message?.includes('Authentication error')) {
+          setError("API authentication error. Please check your credentials.");
+          toast.error("Authentication error", {
+            description: "Please ensure your API key is correct."
+          });
+        } else {
+          // Don't show generic error toasts during automatic polling
+          setError("Failed to check order status. Please try again.");
+        }
+      }
+      
       return null;
     } finally {
       setIsCheckingSms(false);
@@ -636,17 +654,16 @@ const GetVirtualNumber = () => {
       // Only start checking if we have an orderId and isCheckingSms is true
       // This makes the process more defensive
       if (!smsCheckInterval.current) {
-        console.log("Starting SMS check from useEffect with orderId:", orderId);
+        // Removed console.log for deployment
         startCheckingSms(orderId);
       }
     } else if (!orderId && isCheckingSms) {
       // If we're supposed to be checking but have no orderId, log and stop
-      console.log("Cannot start SMS checking - no orderId available");
+      // Removed console.log for deployment
       setIsCheckingSms(false);
     } else if (orderId && orderStatus === "RECEIVED" && !smsCode && !smsCheckInterval.current) {
       // Special case: if we have RECEIVED status but no SMS content, and not already checking
-      // This handles cases where the status was updated but checking stopped for some reason
-      console.log("Status is RECEIVED but no SMS content - resuming checking");
+      // Removed console.log for deployment
       setIsCheckingSms(true);
       startCheckingSms(orderId);
     }
@@ -732,8 +749,7 @@ const GetVirtualNumber = () => {
           (otpData.orderStatus === 'RECEIVED' && !otpData.smsCode)) && 
           !smsCheckInterval.current) {
         
-        console.log(`Resuming SMS checking for ${otpData.orderStatus} order: ${otpData.orderId}`);
-        console.log(`SMS content available: ${Boolean(otpData.smsCode)}`);
+        // Removed console.logs for deployment
         
         setIsCheckingSms(true);
         startCheckingSms(otpData.orderId);
@@ -771,7 +787,7 @@ const GetVirtualNumber = () => {
 
       // 2. Purchase number with optimized error handling
       const operatorToUse = selectedOperator || "auto"; // Set default once
-      console.log(`Purchasing ${selectedProduct} number from ${selectedCountry} with operator ${operatorToUse}`);
+      // Removed console.log for deployment
       
       const data = await getVirtualNumber(selectedCountry, selectedProduct, operatorToUse);
 
@@ -801,7 +817,7 @@ const GetVirtualNumber = () => {
       setOrderCreatedAt(new Date());
       setOrderStatus("PENDING");
       
-      console.log("Number purchased successfully:", { phone: data.phone, id: data.id });
+      // Removed console.log for deployment
       
       // 4. Create transaction and session records in parallel
       const transactionRes = await createVirtualNumberTransaction(
@@ -840,7 +856,7 @@ const GetVirtualNumber = () => {
       });
 
       // 8. Start checking for SMS in the background
-      console.log("Starting SMS check for order ID:", data.id);
+      // Removed console.log for deployment
       setIsCheckingSms(true);
       startCheckingSms(data.id);
 
@@ -951,147 +967,138 @@ const GetVirtualNumber = () => {
 
   // Update cancel handler to update OTP session
   const handleCancelOrder = async () => {
-    if (!orderId || !user) {
-      toast.error("Cannot cancel order", {
-        description: "No active order found or user is not signed in."
-      });
-      return;
-    }
-
     setIsLoading(true);
-    
     try {
-      console.log("Starting cancellation process for order:", orderId);
-      
-      // Get transaction ID from multiple sources to ensure we find it
-      let transactionIdToUse = savedTransaction.current?.id; 
-      
-      // If not in the ref, try localStorage as fallback
-      if (!transactionIdToUse) {
-        const storedId = localStorage.getItem('lastVirtualNumberTransaction');
-        if (storedId) {
-          transactionIdToUse = storedId;
-        }
-      }
-      
-      // Add another fallback - try to find the transaction by order ID in the database
-      if (!transactionIdToUse) {
-        try {
-          // First try to get the transaction from local storage using a different key pattern
-          const storedTransactions = localStorage.getItem('vn_transactions');
-          if (storedTransactions) {
-            const parsedTransactions = JSON.parse(storedTransactions);
-            const matchingTransaction = parsedTransactions.find((t: any) => 
-              t.orderId === orderId.toString() || t.order_id === orderId.toString()
-            );
-            if (matchingTransaction) {
-              transactionIdToUse = matchingTransaction.id || matchingTransaction.transactionId;
-              console.log("Found transaction in local storage history:", transactionIdToUse);
-            }
-          }
-        } catch (parseErr) {
-          console.error("Error parsing stored transactions:", parseErr);
-        }
-      }
-
-      console.log("Transaction ID found:", transactionIdToUse || "None");
-
-      // Check if SMS was already received - if so, we shouldn't refund
-      // IMPORTANT: Only consider SMS received if we have actual SMS content
-      const hasReceivedSms = smsCode !== null;
-      console.log("Has received SMS content:", hasReceivedSms);
-      console.log("Order status:", orderStatus);
-
-      // Try to cancel order with 5sim API first
-      let cancelSuccessful = false;
-      let is5simApiError = false;
-      let apiErrorMessage = "";
-      
-      try {
-        // Before attempting to cancel, check if SMS was received
-        if (hasReceivedSms) {
-          console.log("SMS already received, cancellation with 5sim API may fail");
-        }
-        
-        // Wrap in try/catch to prevent API errors from blocking the whole function
-        const data = await cancelOrder(orderId.toString());
-        cancelSuccessful = !!data;
-        console.log("5sim cancel operation result:", cancelSuccessful ? "Success" : "Failed");
-      } catch (cancelError: any) {
-        console.error("Error cancelling order with 5sim API:", cancelError);
-        is5simApiError = true;
-        
-        // Check if the error response contains information about SMS received
-        let isSmsReceivedError = false;
-        
-        // Extract the error message for better user feedback
-        if (cancelError instanceof Error) {
-          apiErrorMessage = cancelError.message;
-          
-          // Check for specific error patterns indicating SMS already received
-          if ((cancelError.message.includes("400") || 
-               cancelError.message.toLowerCase().includes("cannot cancel") || 
-               cancelError.message.toLowerCase().includes("sms")) && 
-              hasReceivedSms) {
-            console.log("Got expected error when cancelling an order with SMS already received");
-            isSmsReceivedError = true;
-            // Continue with local cancellation only
-          } else {
-            // For other API errors, log but continue with local cancellation
-            console.warn(`Unexpected API error: ${cancelError.message}`);
-          }
-        }
-        
-        // Check response details if available
-        if (cancelError.response?.data?.reason === "SMS_RECEIVED") {
-          isSmsReceivedError = true;
-        }
-        
-        // Set flag for specific error handling
-        if (isSmsReceivedError) {
-          // Will show a special toast message later
-        } else if (apiErrorMessage) {
-          // For other errors, show a general warning
-          toast.warning("5sim API error, proceeding with local cancellation", {
-            description: apiErrorMessage.substring(0, 100) // Limit length
-          });
-        }
-        
-        // Continue with local cancellation even if 5sim API fails
-      }
-
-      // If we got an error and SMS was received, explain to the user why cancellation is not possible with 5sim
-      if (is5simApiError && hasReceivedSms) {
-        console.log("Handling expected case: cannot cancel with 5sim API after SMS received");
-        
-        // Add a special UI notification explaining why cancellation with 5sim failed
-        toast.info("Order Already Used", {
-          description: "SMS was already received, so the 5sim API won't allow cancellation. We'll mark it as completed in your account."
-        });
-        
-        // Instead of setting as cancelled, set as finished
-        setIsOrderFinished(true);
-        setIsOrderCancelled(false);
-        setOrderStatus("FINISHED");
-        
-        // Persist the correct status
-        updateOtpData({ orderStatus: "FINISHED" });
-
-        // Return early to avoid the normal cancellation UI updates
+      if (!number?.id) {
+        setError("No order ID to cancel.");
         setIsLoading(false);
         return;
       }
       
-      // Handle case where API reports RECEIVED status but no SMS content
-      if (is5simApiError && !hasReceivedSms && orderStatus === "RECEIVED") {
-        console.log("API reports RECEIVED status but no SMS content yet. Proceeding with cancellation.");
-        
-        toast.info("Status is RECEIVED but no SMS content yet", {
-          description: "Proceeding with cancellation since actual SMS content has not arrived yet."
-        });
+      if (!user) {
+        setError("User not authenticated.");
+        setIsLoading(false);
+        return;
       }
+      
+      // Get the transaction ID for refund processing
+      const transactionIdToUse = savedTransaction.current?.id || 
+        localStorage.getItem('lastVirtualNumberTransaction');
+      
+      console.log("Cancelling order with ID:", number.id);
+      console.log("Transaction ID for refund:", transactionIdToUse);
 
-      // Update UI state immediately for responsive UX
+      // Check if SMS was already received
+      const hasReceivedSms = smsCode !== null || String(orderStatus) === "RECEIVED";
+      console.log("Has received SMS before cancellation:", hasReceivedSms);
+      
+      let data;
+      let is5simApiError = false;
+      
+      try {
+        data = await cancelOrder(number.id);
+        console.log("Cancellation response:", data);
+      } catch (apiError: any) {
+        console.error("Error cancelling in 5sim:", apiError);
+        is5simApiError = true;
+        
+        // Special handling for case where SMS was already received
+        if (apiError.message?.includes("SMS was already received")) {
+          // If SMS was received, mark as FINISHED instead of CANCELED
+          toast.warning("SMS already received, marking as complete instead", {
+            description: "Since you already received the SMS, the order is marked as complete."
+          });
+          
+          setOrderStatus("FINISHED");
+          
+          // Persist the correct status
+          updateOtpData({ orderStatus: "FINISHED" });
+
+          // Return early to avoid the normal cancellation UI updates
+          setIsLoading(false);
+          return;
+        }
+        
+        // Handle case where API reports RECEIVED status but no SMS content
+        if (is5simApiError && !hasReceivedSms && orderStatus === "RECEIVED") {
+          console.log("API reports RECEIVED status but no SMS content yet. Proceeding with cancellation.");
+          
+          toast.info("Status is RECEIVED but no SMS content yet", {
+            description: "Proceeding with cancellation since actual SMS content has not arrived yet."
+          });
+        }
+
+        // Update UI state immediately for responsive UX
+        setNumber(null);
+        setSmsCode(null);
+        setIsCheckingSms(false);
+        setIsOrderCancelled(true);
+        setOrderStatus("CANCELED");
+        setIsOtpVerified(false);
+        setIsOrderFinished(false);
+        
+        // Stop SMS check timer if active
+        if (smsCheckInterval.current) {
+          clearInterval(smsCheckInterval.current);
+          smsCheckInterval.current = null;
+        }
+
+        // Persist order status update
+        updateOtpData({ orderStatus: "CANCELED" });
+
+        // Process refund ONLY if SMS was not received
+        if (!hasReceivedSms) {
+          let refundProcessed = false;
+          
+          // Try refund with the transaction ID if available
+          if (transactionIdToUse) {
+            try {
+              await handleVirtualNumberRefund(user.id, transactionIdToUse, "CANCELED");
+              refundProcessed = true;
+              toast.success("Order cancelled and balance refunded");
+              
+              // Refresh wallet balance
+              await refetchBalance();
+            } catch (refundError) {
+              console.error("Error processing refund:", refundError);
+              // Will try with direct wallet update next
+            }
+          }
+          
+          if (!refundProcessed) {
+            toast.warning("Order cancelled but refund not processed automatically", {
+              description: "Your refund will be processed shortly."
+            });
+          }
+        } else {
+          // No refund due to SMS already received
+          toast.info("Order cancelled but no refund issued", {
+            description: "Since you already received the SMS, no refund is applicable."
+          });
+        }
+        
+        try {
+          // Skip refund in the DB call if hasReceivedSms
+          await updateVirtualNumberStatus(user.id, number.id, 'CANCELED', undefined, undefined, hasReceivedSms);
+          // Clear persisted data
+          clearOtpData();
+        } catch (dbError) {
+          console.error("Error updating database:", dbError);
+          // Still clear the persisted data
+          clearOtpData();
+        }
+
+        // Call resetUIState to properly reset the UI
+        resetUIState();
+        
+        setIsLoading(false);
+        return;
+      }
+      
+      // Success path: 5sim API call succeeded
+      toast.success("Order cancelled successfully");
+      
+      // Update UI state first for responsive UX
       setNumber(null);
       setSmsCode(null);
       setIsCheckingSms(false);
@@ -1106,101 +1113,71 @@ const GetVirtualNumber = () => {
         smsCheckInterval.current = null;
       }
 
-      // Persist order status update
-      updateOtpData({ orderStatus: "CANCELED" });
-
-      // Process refund ONLY if SMS was not received
+      // Process refund only if SMS was not received
       if (!hasReceivedSms) {
         let refundProcessed = false;
         
-        // Try refund with the transaction ID if available
+        // Try refund with transaction ID if available
         if (transactionIdToUse) {
           try {
-            console.log("Processing refund with transaction ID:", transactionIdToUse);
             await handleVirtualNumberRefund(user.id, transactionIdToUse, "CANCELED");
             refundProcessed = true;
+            toast.success("Balance refunded successfully");
             
-            // Refresh wallet balance immediately
-            refetchBalance().catch(err => 
-              console.error("Error refreshing balance after refund:", err)
-            );
-            
-            toast.success(cancelSuccessful ? 
-              "Order cancelled and balance refunded" : 
-              "Order cancelled locally and balance refunded");
+            // Refresh wallet balance
+            await refetchBalance();
           } catch (refundError) {
-            console.error("Error processing refund with transaction ID:", refundError);
-            // Will try fallback method next
+            console.error("Error processing refund:", refundError);
+            // Will try direct wallet update next
           }
         }
         
-        // Fallback: Try to find the transaction by order ID
         if (!refundProcessed) {
-          try {
-            console.log("Attempting fallback refund via updateVirtualNumberStatus");
-            await updateVirtualNumberStatus(user.id, orderId.toString(), 'CANCELED', undefined, undefined, false);
-            refundProcessed = true;
-            
-            // Refresh wallet balance
-            refetchBalance().catch(err => 
-              console.error("Error refreshing balance after fallback refund:", err)
-            );
-            
-            toast.success("Order cancelled and refund processed");
-          } catch (statusError) {
-            console.error("Error with fallback refund method:", statusError);
-            
-            // Second fallback: Try direct wallet update
-            try {
-              console.log("Trying direct wallet update as last resort");
-              // Default to ₹6 if unknown (most common virtual number price)
-              const amountToRefund = 6; 
-              
-              // Create direct refund transaction
-              await updateWalletBalance(user.id, amountToRefund, 'CREDIT');
-              
-              await createTransaction(
-                user.id, 
-                amountToRefund,
-                'CREDIT',
-                `MANUAL_REFUND_CANCELED_${orderId}`
-              );
-              
-              refundProcessed = true;
-              toast.success("Order cancelled and balance refunded via direct method");
-              
-              // Refresh wallet balance
-              await refetchBalance();
-            } catch (directError) {
-              console.error("Direct wallet update failed:", directError);
-              toast.warning("Order cancelled. Refund may be delayed", {
-                description: "Please check your balance later or contact support if not refunded."
-              });
-            }
-          }
+          toast.warning("Order cancelled but refund not processed automatically", {
+            description: "Your refund will be processed shortly."
+          });
         }
       } else {
-        // SMS was already received, no refund needed
-        console.log("Not processing refund as SMS was already received");
-        toast.info("Order marked as completed", {
-          description: "SMS was already received, so the service was delivered and no refund is issued."
+        // No refund due to SMS already received
+        toast.info("Order cancelled but no refund issued", {
+          description: "Since you already received the SMS, no refund is applicable."
         });
       }
-    } catch (error: any) {
-      console.error("Error in cancel order flow:", error);
-      toast.error("Error cancelling order", {
-        description: error instanceof Error ? error.message : "Please try again or contact support."
-      });
+      
+      try {
+        // Skip refund in DB call if hasReceivedSms
+        await updateVirtualNumberStatus(user.id, number.id, 'CANCELED', undefined, undefined, hasReceivedSms);
+        // Clear persisted data
+        clearOtpData();
+      } catch (dbError) {
+        console.error("Error updating database:", dbError);
+        // Still clear the persisted data
+        clearOtpData();
+      }
+      
+      // Call resetUIState to properly reset the UI
+      resetUIState();
+    } catch (e: any) {
+      console.error("Error cancelling order:", e);
+      setError(e.message || "An unexpected error occurred.");
+      toast.error(e.message || "An unexpected error occurred.");
     } finally {
       setIsLoading(false);
     }
-  };
+  }
 
   const handleBanNumber = async () => {
     setIsLoading(true)
     try {
-      if (!number?.id || !user) {
-        setError("No number to ban")
+      if (!number?.id) {
+        setError("No order ID to ban.")
+        setIsLoading(false)
+        return
+      }
+      
+      if (!user) {
+        setError("User not authenticated.")
+        setIsLoading(false)
         return
       }
 
@@ -1287,70 +1264,67 @@ const GetVirtualNumber = () => {
           }
         } else {
           console.warn("No transaction ID found in context for refund during ban operation");
-          // Log more details to help diagnose missing transaction ID
-          console.log("Order details:", { 
-            orderId: number.id, 
-            phone: number.phone 
-          });
-        }
-        
-        // Fallback: Try to find the transaction by order ID if direct refund failed
-        if (!refundProcessed) {
-          try {
-            console.log(`Attempting fallback refund via updateVirtualNumberStatus for order ${number.id}`);
-            
-            // First attempt with direct order ID
-            await updateVirtualNumberStatus(user.id, number.id, 'BANNED', undefined, undefined, false);
-            
-            // Double check if refund worked by querying balance
-            const currentBalance = await getWalletBalance(user.id);
-            console.log(`Current balance after refund attempt: ${currentBalance}`);
-            
-            refundProcessed = true;
-            toast.success("Number banned and balance refunded successfully");
-            
-            // Refresh wallet balance again
-            await refetchBalance();
-          } catch (statusError) {
-            console.error("Error updating status and processing refund:", statusError);
-            
-            // Try one more direct approach as final attempt
+          // Try with the lastVirtualNumberTransaction from localStorage as fallback
+          const fallbackTransactionId = localStorage.getItem('lastVirtualNumberTransaction');
+          console.log("Fallback transaction ID from localStorage:", fallbackTransactionId);
+          
+          if (fallbackTransactionId) {
             try {
-              console.log("Trying direct wallet update as last resort");
-              // Default to ₹6 if unknown (most common virtual number price)
-              const amountToRefund = 6; 
-              
-              // Create direct refund transaction
-              await updateWalletBalance(user.id, amountToRefund, 'CREDIT');
-              
-              await createTransaction(
-                user.id, 
-                amountToRefund,
-                'CREDIT',
-                `MANUAL_REFUND_BANNED_${number.id}`
-              );
-              
+              console.log("Processing refund with fallback transaction ID:", fallbackTransactionId);
+              await handleVirtualNumberRefund(user.id, fallbackTransactionId, "BANNED");
               refundProcessed = true;
-              toast.success("Number banned and balance refunded via direct method");
+              toast.success("Number banned and balance refunded successfully");
               
               // Refresh wallet balance
               await refetchBalance();
-            } catch (directError) {
-              console.error("Direct wallet update failed:", directError);
-              toast.warning("Number banned. Refund may be delayed", {
-                description: "Your balance will be updated shortly."
-              });
+            } catch (fallbackError) {
+              console.error("Error processing refund with fallback transaction ID:", fallbackError);
+              // Will try direct wallet update next
             }
           }
         }
         
+        // As a final fallback, try a direct wallet update
         if (!refundProcessed) {
-          console.warn("All refund methods failed, will need manual intervention");
-          toast.warning("Number banned, but refund could not be processed", {
-            description: "Please contact support for assistance with your refund. Order ID: " + number.id
-          });
+          // Try a direct wallet balance update as last resort
+          try {
+            // Calculate approximate refund amount from the operator cost
+            const operatorCost = selectedOperatorDetails?.cost || 0;
+            const refundAmount = convertToINR(operatorCost);
+            
+            console.log(`Attempting direct wallet balance update with amount: ₹${refundAmount}`);
+            
+            // Only attempt if we have a non-zero amount
+            if (refundAmount > 0) {
+              // Add to wallet directly
+              await updateWalletBalance(user.id, refundAmount, 'CREDIT');
+              
+              // Create a transaction record
+              await createTransaction(
+                user.id,
+                refundAmount,
+                'CREDIT',
+                `REFUND_BANNED_${number.id}`
+              );
+              
+              refundProcessed = true;
+              toast.success(`Number banned and ₹${refundAmount} refunded to wallet`);
+              
+              // Refresh wallet balance
+              await refetchBalance();
+            } else {
+              console.warn("Skipping direct wallet update due to zero amount");
+            }
+          } catch (directError) {
+            console.error("Direct wallet update failed:", directError);
+            toast.warning("Number banned. Refund may be delayed", {
+              description: "Your balance will be updated shortly."
+            });
+          }
         }
-      } else {
+      }
+      
+      if (!shouldProcessRefund) {
         // No refund given because service was already used
         toast.info("Number banned but no refund issued", {
           description: "Service was already provided (SMS received), so no refund is applicable."
@@ -1727,19 +1701,19 @@ const GetVirtualNumber = () => {
 
   // Define checkSms function 
   const checkSms = async (orderIdToUse: number) => {
-    console.log(`Checking SMS for order ${orderIdToUse}...`);
+    // Removed console.log for deployment
     if (!orderIdToUse) {
-      console.error("No order ID to check SMS");
+      // Removed console.error for deployment
       return;
     }
 
     try {
       const result = await getSmsCode(String(orderIdToUse));
-      console.log("SMS check data:", result);
+      // Removed console.log for deployment
 
       // Ensure we have a valid data object
       if (!result) {
-        console.log("No data returned from getSmsCode");
+        // Removed console.log for deployment
         return;
       }
       
@@ -1750,10 +1724,17 @@ const GetVirtualNumber = () => {
         setOrderStatus(data.status as OrderStatus);
         updateOtpData({ orderStatus: data.status });
       }
+      
+      // Update product name from API response if available
+      if (data.product) {
+        // Removed console.log for deployment
+        setActiveProductName(data.product.replace(/_/g, " "));
+        // Don't update OTP data as service field doesn't exist in OtpData interface
+      }
 
       if (data.sms && data.sms.length > 0) {
         // We have actual SMS content
-        console.log("SMS received:", data.sms[0].text);
+        // Removed console.log for deployment
         
         // Process SMS: Extract OTP code
         const lastSms = data.sms[data.sms.length - 1];
@@ -1784,14 +1765,14 @@ const GetVirtualNumber = () => {
           });
         } else {
           // SMS received but no OTP detected
-          console.log("SMS received but no OTP detected in:", smsText);
+          // Removed console.log for deployment
           toast.warning("SMS received but no OTP found", {
             description: "We received an SMS but couldn't detect a valid OTP code."
           });
         }
       } else if (data.status === "RECEIVED") {
         // Special case: API reports RECEIVED but no SMS content yet
-        console.log("Status is RECEIVED but no SMS content available yet");
+        // Removed console.log for deployment
         
         // Keep checking in case the SMS content arrives later
         if (!isCheckingSms) {
@@ -1799,9 +1780,13 @@ const GetVirtualNumber = () => {
         }
         
         // Don't set smsCode since we don't have actual content yet
-        toast.info("SMS status is RECEIVED", {
-          description: "The system reports SMS is on the way but content is not available yet. Still waiting..."
-        });
+        // For deployment, only show this toast once per session to avoid spam
+        if (!hasShownReceivedStatusToast.current) {
+          toast.info("SMS status is RECEIVED", {
+            description: "The system reports SMS is on the way but content is not available yet. Still waiting..."
+          });
+          hasShownReceivedStatusToast.current = true;
+        }
       }
 
       // Update status display with rich HTML
@@ -1816,8 +1801,46 @@ const GetVirtualNumber = () => {
           }
         }
       }
-    } catch (error) {
-      console.error("Error checking SMS:", error);
+    } catch (error: any) {
+      // Removed console.error for deployment
+      
+      // For order not found or already completed errors, handle gracefully
+      if (error.message?.includes('order not found')) {
+        // If order is not found, it may have been cancelled or completed
+        // Just stop checking and don't show error toast
+        if (smsCheckInterval.current) {
+          clearInterval(smsCheckInterval.current);
+          smsCheckInterval.current = null;
+          setIsCheckingSms(false);
+        }
+        return;
+      }
+      
+      // Don't show toast errors on every interval check unless it's a critical error
+      // This prevents too many error notifications during automatic polling
+      if (
+        error.message?.includes('API authentication error') || 
+        error.message?.includes('non-JSON response') ||
+        error.message?.includes('Failed to parse API response') 
+      ) {
+        // Only update the error state without showing toast for polling
+        setError(error.message || "Error checking for SMS");
+        
+        // Stop the interval to prevent repeated errors
+        if (smsCheckInterval.current) {
+          clearInterval(smsCheckInterval.current);
+          smsCheckInterval.current = null;
+          setIsCheckingSms(false);
+          
+          // Only show one toast for this critical error
+          // For deployment, only show if not in automatic polling mode
+          if (!isPollingAutomatically.current) {
+            toast.error("API connection issue", {
+              description: "Error communicating with 5sim. Check your API credentials."
+            });
+          }
+        }
+      }
     }
   };
 
@@ -1827,7 +1850,7 @@ const GetVirtualNumber = () => {
     const orderIdToUse = initialOrderId ? Number(initialOrderId) : orderId;
     
     if (!orderIdToUse) {
-      console.error("Cannot start SMS check - no orderId available");
+      // Removed console.error for deployment
       setIsCheckingSms(false);
       return;
     }
@@ -1845,7 +1868,10 @@ const GetVirtualNumber = () => {
     // Check if we already know status is RECEIVED (from state)
     const checkInterval = orderStatus === "RECEIVED" ? 3000 : 10000; // 3s for RECEIVED status, 10s for others
     
-    console.log(`Starting SMS check for order ${orderIdToUse} with interval ${checkInterval}ms`);
+    // Removed console.log for deployment
+    
+    // Set automatic polling flag to avoid showing error toasts during polling
+    isPollingAutomatically.current = true;
     
     // Run checkSms immediately before setting interval
     checkSms(orderIdToUse);
@@ -1863,6 +1889,10 @@ const GetVirtualNumber = () => {
     }
     
     setIsLoading(true);
+    
+    // Turn off automatic polling flag for manual check
+    isPollingAutomatically.current = false;
+    
     try {
       // Use our existing checkSms function to perform the check
       await checkSms(orderId);
@@ -1880,7 +1910,7 @@ const GetVirtualNumber = () => {
         }
       }
     } catch (error) {
-      console.error("Error in manual SMS check:", error);
+      // Removed console.error for deployment
       toast.error("Failed to check SMS manually");
     } finally {
       setIsLoading(false);
@@ -1890,13 +1920,13 @@ const GetVirtualNumber = () => {
   // Handling timeout scenario
   const handleOrderTimeout = async () => {
     if (orderStatus !== "PENDING") {
-      console.log("Order not in PENDING state, skipping timeout handling");
+      // Removed console.log for deployment
       return;
     }
     
     // Check if user is null before proceeding
     if (!user) {
-      console.warn("User not available for refund processing during timeout");
+      // Removed console.warn for deployment
       return;
     }
 
@@ -1906,7 +1936,7 @@ const GetVirtualNumber = () => {
         localStorage.getItem('lastVirtualNumberTransaction');
 
       if (!transactionIdToUse) {
-        console.warn("No transaction ID found for refund during timeout");
+        // Removed console.warn for deployment
       } else {
         // Process the refund with null check for user
         await handleVirtualNumberRefund(user.id, transactionIdToUse, "TIMEOUT");
