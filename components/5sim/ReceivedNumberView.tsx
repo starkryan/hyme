@@ -180,17 +180,29 @@ export function ReceivedNumberView({
     // All actions are disabled if the order is banned
     if (isOrderBanned) return true;
     
+    // Disable certain actions if SMS has been received - check for actual SMS content!
+    // A true SMS received state should have both status RECEIVED AND actual SMS code content
+    const hasSmsBeenReceived = smsCode !== null; // Only check if we have actual SMS content
+    
     switch(action) {
       case 'ban':
+        // Allow banning even if SMS received, but disable if order is already finished/cancelled
         return baseDisabled || isBanning;
       case 'cancel':
-        return baseDisabled || isCancelling || isOrderBanned;
+        // Disable cancel if SMS already received
+        return baseDisabled || isCancelling || isOrderBanned || hasSmsBeenReceived;
       case 'finish':
         return baseDisabled || !smsCode || isOrderBanned;
       default:
         return baseDisabled;
     }
   };
+
+  // Check if SMS has been ACTUALLY received (has content)
+  const hasSmsBeenReceived = smsCode !== null;
+  
+  // Check if the order status says RECEIVED but no SMS content yet
+  const isStatusReceivedButNoSms = orderStatus === "RECEIVED" && smsCode === null;
 
   return (
     <div className="space-y-4 animate-in fade-in-50 slide-in-from-bottom-5 duration-500">
@@ -397,6 +409,27 @@ export function ReceivedNumberView({
         </Card>
       )}
 
+      {/* SMS Received Notice */}
+      {hasSmsBeenReceived ? (
+        <Card className="bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200 dark:border-yellow-800">
+          <CardContent className="flex items-center gap-2 p-3">
+            <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-500 shrink-0" />
+            <p className="text-sm text-yellow-700 dark:text-yellow-400">
+              SMS has been received. You cannot cancel this number anymore as the service has been delivered.
+            </p>
+          </CardContent>
+        </Card>
+      ) : isStatusReceivedButNoSms ? (
+        <Card className="bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
+          <CardContent className="flex items-center gap-2 p-3">
+            <AlertTriangle className="h-4 w-4 text-blue-600 dark:text-blue-500 shrink-0" />
+            <p className="text-sm text-blue-700 dark:text-blue-400">
+              System reports SMS is on the way, but not delivered yet. You can still cancel if needed.
+            </p>
+          </CardContent>
+        </Card>
+      ) : null}
+
       {/* Error Display */}
       {error && (
         <Card className="bg-destructive/10 border-destructive/20">
@@ -480,7 +513,11 @@ export function ReceivedNumberView({
                   ? "This order has been banned" 
                   : isOrderCancelled 
                     ? "This order has been cancelled" 
-                    : "Cancel this order"}
+                    : hasSmsBeenReceived
+                      ? "Cannot cancel after SMS is received"
+                      : isStatusReceivedButNoSms
+                        ? "You can cancel while waiting for SMS content"
+                        : "Cancel this order"}
               </p>
             </TooltipContent>
           </Tooltip>

@@ -48,7 +48,7 @@ export default function Navbar() {
   const authLinks = (
     <div className="flex items-center gap-4">
       <Link href="/signin">
-        <Button variant="ghost" size="sm">
+        <Button variant="outline" size="sm">
           Sign in
         </Button>
       </Link>
@@ -119,9 +119,14 @@ export default function Navbar() {
           {isSignedIn && <UserButton afterSignOutUrl="/" />}
           <Sheet open={open} onOpenChange={setOpen}>
             <SheetTrigger asChild>
-              <Button variant="ghost" size="icon">
-                <Menu className="h-6 w-6" />
-              </Button>
+            <Button 
+              variant="outline"
+              size="default"
+              className="gap-2 px-4 sm:px-6 text-sm sm:text-base w-full sm:w-auto"
+            >
+              <Menu className="w-4 h-4" />
+              Menu
+            </Button>
             </SheetTrigger>
             <SheetContent side="right" className="w-72">
               <div className="font-bold text-xl mb-6 text-primary">OTPMaya</div>

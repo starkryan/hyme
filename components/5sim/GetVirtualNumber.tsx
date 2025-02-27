@@ -850,20 +850,44 @@ const GetVirtualNumber = () => {
     try {
       console.log("Starting cancellation process for order:", orderId);
       
-      // Get transaction ID from local storage or ref, not from otpData
-      const transactionIdToUse = savedTransaction.current?.id || 
-        localStorage.getItem('lastVirtualNumberTransaction');
-
+      // Get transaction ID from multiple sources to ensure we find it
+      let transactionIdToUse = savedTransaction.current?.id; 
+      
+      // If not in the ref, try localStorage as fallback
       if (!transactionIdToUse) {
-        console.warn("No transaction ID found for refund during cancel");
-        // Continue with cancel process despite missing transaction ID
+        const storedId = localStorage.getItem('lastVirtualNumberTransaction');
+        if (storedId) {
+          transactionIdToUse = storedId;
+        }
       }
       
+      // Add another fallback - try to find the transaction by order ID in the database
+      if (!transactionIdToUse) {
+        try {
+          // First try to get the transaction from local storage using a different key pattern
+          const storedTransactions = localStorage.getItem('vn_transactions');
+          if (storedTransactions) {
+            const parsedTransactions = JSON.parse(storedTransactions);
+            const matchingTransaction = parsedTransactions.find((t: any) => 
+              t.orderId === orderId.toString() || t.order_id === orderId.toString()
+            );
+            if (matchingTransaction) {
+              transactionIdToUse = matchingTransaction.id || matchingTransaction.transactionId;
+              console.log("Found transaction in local storage history:", transactionIdToUse);
+            }
+          }
+        } catch (parseErr) {
+          console.error("Error parsing stored transactions:", parseErr);
+        }
+      }
+
       console.log("Transaction ID found:", transactionIdToUse || "None");
 
       // Check if SMS was already received - if so, we shouldn't refund
-      const hasReceivedSms = smsCode !== null || orderStatus === "RECEIVED";
-      console.log("Has received SMS:", hasReceivedSms);
+      // IMPORTANT: Only consider SMS received if we have actual SMS content
+      const hasReceivedSms = smsCode !== null;
+      console.log("Has received SMS content:", hasReceivedSms);
+      console.log("Order status:", orderStatus);
 
       // Try to cancel order with 5sim API first
       let cancelSuccessful = false;
@@ -944,6 +968,15 @@ const GetVirtualNumber = () => {
         setIsLoading(false);
         return;
       }
+      
+      // Handle case where API reports RECEIVED status but no SMS content
+      if (is5simApiError && !hasReceivedSms && orderStatus === "RECEIVED") {
+        console.log("API reports RECEIVED status but no SMS content yet. Proceeding with cancellation.");
+        
+        toast.info("Status is RECEIVED but no SMS content yet", {
+          description: "Proceeding with cancellation since actual SMS content has not arrived yet."
+        });
+      }
 
       // Update UI state immediately for responsive UX
       setNumber(null);
@@ -992,7 +1025,7 @@ const GetVirtualNumber = () => {
         if (!refundProcessed) {
           try {
             console.log("Attempting fallback refund via updateVirtualNumberStatus");
-            await updateVirtualNumberStatus(user.id, orderId.toString(), 'CANCELED');
+            await updateVirtualNumberStatus(user.id, orderId.toString(), 'CANCELED', undefined, undefined, false);
             refundProcessed = true;
             
             // Refresh wallet balance
@@ -1003,9 +1036,34 @@ const GetVirtualNumber = () => {
             toast.success("Order cancelled and refund processed");
           } catch (statusError) {
             console.error("Error with fallback refund method:", statusError);
-            toast.warning("Order cancelled, but refund may be delayed", {
-              description: "Please check your balance later or contact support if not refunded."
-            });
+            
+            // Second fallback: Try direct wallet update
+            try {
+              console.log("Trying direct wallet update as last resort");
+              // Default to ₹6 if unknown (most common virtual number price)
+              const amountToRefund = 6; 
+              
+              // Create direct refund transaction
+              await updateWalletBalance(user.id, amountToRefund, 'CREDIT');
+              
+              await createTransaction(
+                user.id, 
+                amountToRefund,
+                'CREDIT',
+                `MANUAL_REFUND_CANCELED_${orderId}`
+              );
+              
+              refundProcessed = true;
+              toast.success("Order cancelled and balance refunded via direct method");
+              
+              // Refresh wallet balance
+              await refetchBalance();
+            } catch (directError) {
+              console.error("Direct wallet update failed:", directError);
+              toast.warning("Order cancelled. Refund may be delayed", {
+                description: "Please check your balance later or contact support if not refunded."
+              });
+            }
           }
         }
       } else {
@@ -1040,9 +1098,10 @@ const GetVirtualNumber = () => {
       console.log("Transaction ID from context:", transactionId);
       
       // IMPORTANT: Check if SMS has been received already
-      // If SMS was already received, we should not refund as service was already provided
-      const hasReceivedSms = smsCode !== null || orderStatus === "RECEIVED";
-      console.log("Has received SMS:", hasReceivedSms);
+      // Only consider SMS received if we have actual SMS content
+      const hasReceivedSms = smsCode !== null;
+      console.log("Has received SMS content:", hasReceivedSms);
+      console.log("Order status:", orderStatus);
       
       // Attempt to ban the number in 5sim
       let data;
@@ -1555,235 +1614,97 @@ const GetVirtualNumber = () => {
 
   // Define checkSms function 
   const checkSms = async (orderIdToUse: number) => {
-    // Safety check for orderIdToUse at the beginning
+    console.log(`Checking SMS for order ${orderIdToUse}...`);
     if (!orderIdToUse) {
-      console.error("Lost orderIdToUse during SMS check");
-      if (smsCheckInterval.current) {
-        clearInterval(smsCheckInterval.current as unknown as number);
-        smsCheckInterval.current = null;
-        setIsCheckingSms(false);
-      }
+      console.error("No order ID to check SMS");
       return;
     }
 
-    retryAttemptsRef.current += 1;
-    // Update state for UI display
-    setRetryAttempts(retryAttemptsRef.current);
-    
     try {
-      console.log(`[${retryAttemptsRef.current}] Checking SMS for order ${orderIdToUse}`);
-      const response = await getSmsCode(orderIdToUse.toString());
-      console.log("API response:", response);
-      
-      if (!response) {
-        console.log("No response from API, continuing to check...");
+      const result = await getSmsCode(String(orderIdToUse));
+      console.log("SMS check data:", result);
+
+      // Ensure we have a valid data object
+      if (!result) {
+        console.log("No data returned from getSmsCode");
         return;
       }
       
-      // Update order status based on response
-      if (response.status) {
-        setOrderStatus(response.status as OrderStatus);
+      // Now we can safely access the data properties
+      const data = result; // For clarity in the code
+
+      if (data.status) {
+        setOrderStatus(data.status as OrderStatus);
+        updateOtpData({ orderStatus: data.status });
+      }
+
+      if (data.sms && data.sms.length > 0) {
+        // We have actual SMS content
+        console.log("SMS received:", data.sms[0].text);
         
-        // Stop checking if order is cancelled or banned
-        if (response.status === "CANCELED") {
-          setIsOrderCancelled(true);
+        // Process SMS: Extract OTP code
+        const lastSms = data.sms[data.sms.length - 1];
+        let smsText = lastSms.text || "";
+        setFullSms(smsText);
+        
+        // Extract OTP using regex
+        const otpMatch = smsText.match(/\b\d{4,6}\b/);
+        if (otpMatch) {
+          setSmsCode(otpMatch[0]);
+          updateOtpData({ smsCode: otpMatch[0], fullSms: smsText });
+          
+          // Stop checking SMS since we found one
           setIsCheckingSms(false);
           if (smsCheckInterval.current) {
-            clearInterval(smsCheckInterval.current as unknown as number);
+            clearInterval(smsCheckInterval.current);
             smsCheckInterval.current = null;
           }
-          
-          toast.info("Order was cancelled");
-          
-          // Update local storage
-          updateOtpData({
-            orderStatus: "CANCELED"
-          });
-          
-          // Update database status - but don't stop on error
-          if (user) {
-            try {
-              await updateVirtualNumberStatus(
-                user.id, 
-                orderIdToUse.toString(), 
-                "CANCELED"
-              );
-            } catch (dbError) {
-              console.error("Error updating database after cancel:", dbError);
-              // Continue execution - non-critical database error
-            }
+
+          // Update order status to RECEIVED if not already
+          if (orderStatus !== "RECEIVED") {
+            setOrderStatus("RECEIVED");
+            updateOtpData({ orderStatus: "RECEIVED" });
           }
           
-          return;
+          toast.success("OTP Received!", {
+            description: `Your OTP is: ${otpMatch[0]}`
+          });
+        } else {
+          // SMS received but no OTP detected
+          console.log("SMS received but no OTP detected in:", smsText);
+          toast.warning("SMS received but no OTP found", {
+            description: "We received an SMS but couldn't detect a valid OTP code."
+          });
+        }
+      } else if (data.status === "RECEIVED") {
+        // Special case: API reports RECEIVED but no SMS content yet
+        console.log("Status is RECEIVED but no SMS content available yet");
+        
+        // Keep checking in case the SMS content arrives later
+        if (!isCheckingSms) {
+          setIsCheckingSms(true);
         }
         
-        if (response.status === "BANNED") {
-          setIsOrderCancelled(true);
-          setIsCheckingSms(false);
-          if (smsCheckInterval.current) {
-            clearInterval(smsCheckInterval.current as unknown as number);
-            smsCheckInterval.current = null;
-          }
-          
-          toast.error("Number was banned");
-          
-          // Update local storage
-          updateOtpData({
-            orderStatus: "BANNED"
-          });
-          
-          // Update database status - but don't stop on error
-          if (user) {
-            try {
-              await updateVirtualNumberStatus(
-                user.id, 
-                orderIdToUse.toString(), 
-                "BANNED"
-              );
-            } catch (dbError) {
-              console.error("Error updating database after ban:", dbError);
-              // Continue execution - non-critical database error
-            }
-          }
-          
-          return;
-        }
+        // Don't set smsCode since we don't have actual content yet
+        toast.info("SMS status is RECEIVED", {
+          description: "The system reports SMS is on the way but content is not available yet. Still waiting..."
+        });
       }
-      
-      // Check if SMS found
-      if (response.sms && response.sms.length > 0) {
-        const sms = response.sms[0];
-        console.log("SMS found:", sms);
-        
-        setSmsCode(sms.code);
-        setFullSms(sms.text);
-        setOrderStatus("RECEIVED");
-        setIsCheckingSms(false);
-        
-        if (smsCheckInterval.current) {
-          clearInterval(smsCheckInterval.current as unknown as number);
-          smsCheckInterval.current = null;
-        }
-        
-        toast.success("SMS Code Found!", {
-          description: `Your verification code is: ${sms.code}`,
-        });
-        
-        // Update local storage
-        updateOtpData({
-          smsCode: sms.code,
-          fullSms: sms.text,
-          orderStatus: "RECEIVED"
-        });
-        
-        // Update database status - don't stop on error
-        if (user) {
-          try {
-            await updateVirtualNumberStatus(
-              user.id, 
-              orderIdToUse.toString(), 
-              "RECEIVED", 
-              sms.code, 
-              sms.text
-            );
-          } catch (dbError) {
-            console.error("Error updating database after SMS received:", dbError);
-            // Still consider the SMS received for UI purposes
-          }
-          
-          // Mark transaction as successful - don't stop on error
-          if (savedTransaction.current?.id) {
-            try {
-              // The balance was already deducted during purchase, this just confirms the transaction as COMPLETED
-              console.log("Finalizing transaction for SMS received:", {
-                transactionId: savedTransaction.current.id,
-                orderId: orderIdToUse.toString()
-              });
-              
-              await handleSuccessfulOTP(user.id, savedTransaction.current.id, orderIdToUse.toString());
-              
-              // Refresh wallet balance to ensure UI is updated
-              await refetchBalance();
-            } catch (otpError) {
-              console.error("Error marking transaction as successful:", otpError);
-              // Non-critical for UI
-            }
+
+      // Update status display with rich HTML
+      if (data.expires) {
+        const expiryDate = new Date(data.expires);
+        if (!isNaN(expiryDate.getTime())) {
+          const timeoutDuration = expiryDate.getTime() - Date.now();
+          if (timeoutDuration > 0) {
+            // Set timeout timer
+            setOtpTimeout(Math.floor(timeoutDuration / 1000));
+            setIsTimeoutActive(true);
           }
         }
-      } else if (response.status === "RECEIVED") {
-        // Status is RECEIVED but SMS array is empty - continue checking with higher frequency
-        console.log("Status is RECEIVED but SMS array is empty, continuing to check more aggressively...");
-        
-        // Update UI to show RECEIVED status
-        setOrderStatus("RECEIVED");
-        
-        // Update localStorage to reflect RECEIVED status
-        updateOtpData({
-          orderStatus: "RECEIVED"
-        });
-        
-        // Adjust check interval to check more frequently (every 3 seconds)
-        if (smsCheckInterval.current) {
-          clearInterval(smsCheckInterval.current as unknown as number);
-          const moreFrequentInterval = setInterval(() => checkSms(orderIdToUse), 3000); // Check every 3 seconds
-          smsCheckInterval.current = moreFrequentInterval as unknown as NodeJS.Timeout;
-        }
-        
-        // Only show toast notification periodically to avoid spamming
-        if (retryAttemptsRef.current % 3 === 0) {
-          toast.info("Provider confirmed OTP sent! Waiting for content...", {
-            description: "The system is actively checking for your verification code"
-          });
-        }
-        
-        // Update database status, but don't set smsCode or fullSms yet
-        // And don't stop execution on database error
-        if (user) {
-          try {
-            await updateVirtualNumberStatus(
-              user.id, 
-              orderIdToUse.toString(), 
-              "RECEIVED"
-            );
-          } catch (dbError) {
-            console.error("Error updating database to RECEIVED status:", dbError);
-            // Continue checking - database error is non-critical for this flow
-          }
-        }
-        
-        // Don't limit retries when status is RECEIVED - keep trying until we get the SMS
-        // Reset counter to avoid hitting maximum retries
-        retryAttemptsRef.current = Math.min(retryAttemptsRef.current, 10);
-      }
-      
-      // Check if we've exceeded max retries and status isn't RECEIVED
-      // (If status is RECEIVED we keep checking regardless of retry count)
-      if (retryAttemptsRef.current > 60 && response.status !== "RECEIVED") {
-        console.log("Max retry attempts reached");
-        setIsCheckingSms(false);
-        if (smsCheckInterval.current) {
-          clearInterval(smsCheckInterval.current as unknown as number);
-          smsCheckInterval.current = null;
-        }
-        toast.error("No SMS received after multiple attempts", {
-          description: "Please try again or contact support if the issue persists"
-        });
       }
     } catch (error) {
       console.error("Error checking SMS:", error);
-      
-      // Don't stop checking on error, but log it
-      if (retryAttemptsRef.current > 60) {
-        console.log("Max retry attempts reached after errors");
-        setIsCheckingSms(false);
-        if (smsCheckInterval.current) {
-          clearInterval(smsCheckInterval.current as unknown as number);
-          smsCheckInterval.current = null;
-        }
-        toast.error("Error checking SMS after multiple attempts", {
-          description: "Please try again or contact support if the issue persists"
-        });
-      }
     }
   };
 
@@ -1835,7 +1756,9 @@ const GetVirtualNumber = () => {
       
       // If after the check we still don't have SMS content, but status is RECEIVED
       if (!smsCode && orderStatus === "RECEIVED") {
-        toast.info("Status is RECEIVED but no SMS content is available yet. Will keep checking.");
+        toast.info("Status is RECEIVED but no SMS content available yet", {
+          description: "The system reports the SMS is on the way. We'll keep checking for the actual content."
+        });
         
         // Make sure we're still checking for SMS
         if (!isCheckingSms) {
