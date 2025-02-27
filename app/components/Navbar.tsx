@@ -269,12 +269,12 @@ export default function Navbar() {
 
       {/* Desktop Navigation - Fixed container issues */}
       <div className="hidden md:block">
-        <div className="container mx-auto flex items-center justify-between max-w-7xl px-4 sm:px-6 lg:px-8">
-          <nav className="flex items-center gap-6">
-            <Link href="/" className="font-bold text-xl text-primary">
+        <div className="container mx-auto flex items-center justify-between max-w-7xl px-4 sm:px-6 lg:px-8 h-16">
+          <nav className="flex items-center gap-8">
+            <Link href="/" className="font-bold text-2xl text-primary">
               OTPMaya
             </Link>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-6">
               {routes.map((route) => (
                 <TooltipProvider key={route.href}>
                   <Tooltip>
@@ -282,12 +282,12 @@ export default function Navbar() {
                       <Link
                         href={route.href}
                         className={cn(
-                          "flex items-center gap-2 text-sm font-medium px-3 py-2 rounded-md",
+                          "flex items-center gap-2 text-base font-medium px-4 py-2.5 rounded-md",
                           "hover:bg-accent hover:text-accent-foreground transition-all",
                           "hover:scale-105"
                         )}
                       >
-                        <route.icon className="h-4 w-4" />
+                        <route.icon className="h-5 w-5" />
                         {route.label}
                       </Link>
                     </TooltipTrigger>
@@ -300,7 +300,7 @@ export default function Navbar() {
             </div>
           </nav>
           
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-6">
             <DarkModeToggle />
             {isSignedIn && <WalletSheet />}
             {isSignedIn ? (
