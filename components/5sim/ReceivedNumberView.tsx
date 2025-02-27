@@ -1,6 +1,6 @@
 "use client"
 
-import React, { JSX, useState } from "react"
+import React, { JSX, useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -98,6 +98,24 @@ export function ReceivedNumberView({
   // State for tracking dialog open state
   const [resetDialogOpen, setResetDialogOpen] = useState(false)
   const [isResetting, setIsResetting] = useState(false)
+  const [isBanning, setIsBanning] = useState(false)
+  const [isCancelling, setIsCancelling] = useState(false)
+  const [isOrderBanned, setIsOrderBanned] = useState(orderStatus === "BANNED")
+
+  // Update isOrderBanned when orderStatus changes
+  useEffect(() => {
+    if (orderStatus === "BANNED") {
+      setIsOrderBanned(true);
+    }
+  }, [orderStatus]);
+
+  // Also update isOrderCancelled state when ban happens
+  useEffect(() => {
+    if (isOrderBanned) {
+      // Once order is banned, it's effectively cancelled in the system
+      // This prevents trying to cancel an already banned (non-existent) order
+    }
+  }, [isOrderBanned]);
 
   // Determine if the warning should be shown (active order that's not finished or cancelled)
   const showResetWarning = orderStatus === "PENDING" || orderStatus === "RECEIVED";
@@ -125,6 +143,55 @@ export function ReceivedNumberView({
     }
   }
 
+  // Enhanced ban handler to update UI state
+  const handleBanWithState = async () => {
+    if (isOrderBanned || isBanning) return;
+    
+    try {
+      setIsBanning(true);
+      await handleBanNumber();
+      setIsOrderBanned(true);
+      // After banning, the order is in a final state and cannot be cancelled
+    } catch (error) {
+      console.error("Error banning number:", error);
+    } finally {
+      setIsBanning(false);
+    }
+  };
+
+  // Enhanced cancel handler
+  const handleCancelWithState = async () => {
+    if (isOrderCancelled || isCancelling || isOrderBanned) return;
+    
+    try {
+      setIsCancelling(true);
+      await handleCancelOrder();
+    } catch (error) {
+      console.error("Error cancelling order:", error);
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
+  // Helper function to check if buttons should be disabled
+  const isActionDisabled = (action: 'ban' | 'cancel' | 'finish') => {
+    const baseDisabled = isLoading || isOrderCancelled || isOrderFinished;
+    
+    // All actions are disabled if the order is banned
+    if (isOrderBanned) return true;
+    
+    switch(action) {
+      case 'ban':
+        return baseDisabled || isBanning;
+      case 'cancel':
+        return baseDisabled || isCancelling || isOrderBanned;
+      case 'finish':
+        return baseDisabled || !smsCode || isOrderBanned;
+      default:
+        return baseDisabled;
+    }
+  };
+
   return (
     <div className="space-y-4 animate-in fade-in-50 slide-in-from-bottom-5 duration-500">
       {/* Display Number Information */}
@@ -138,8 +205,8 @@ export function ReceivedNumberView({
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <CardTitle className="text-lg">Virtual Number</CardTitle>
-                    <Badge variant={getStatusColor(orderStatus)} className="text-xs font-semibold px-2 py-1">
-                      {orderStatus}
+                    <Badge variant={getStatusColor(isOrderBanned ? "BANNED" : orderStatus)} className="text-xs font-semibold px-2 py-1">
+                      {isOrderBanned ? "BANNED" : orderStatus}
                     </Badge>
                   </div>
                   
@@ -242,7 +309,10 @@ export function ReceivedNumberView({
       {smsCode && (
         <Card className="shadow-sm">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">OTP Received</CardTitle>
+            <CardTitle className="text-base flex items-center gap-2">
+              <CircleCheck className="h-4 w-4 text-green-500" />
+              OTP Received
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 p-4">
             <div className="flex flex-col gap-3">
@@ -276,48 +346,19 @@ export function ReceivedNumberView({
                 {smsCode.split('').map((digit, index) => (
                   <div 
                     key={index} 
-                    className="flex items-center justify-center w-10 h-12 md:w-12 md:h-14 rounded-md border-2 border-primary/20 bg-background shadow-sm animate-in fade-in-50 duration-500 slide-in-from-bottom-3"
+                    className="flex items-center justify-center w-10 h-12 md:w-12 md:h-14 rounded-md border-2 border-green-500/60 bg-green-50/30 dark:bg-green-950/20 shadow-sm animate-in fade-in-50 duration-500 slide-in-from-bottom-3"
                     style={{ 
                       animationDelay: `${index * 100}ms`,
-                      animationFillMode: 'both',
-                      boxShadow: '0 0 0 0 rgba(22, 163, 74, 0.7)',
-                      animation: `
-                        fade-in-50 500ms ${index * 100}ms both,
-                        slide-in-from-bottom-3 500ms ${index * 100}ms both,
-                        pulse-border 2s ${500 + index * 100}ms ease-out
-                      `
                     }}
                   >
-                    <span className="text-xl md:text-2xl font-bold text-primary animate-in zoom-in-95 duration-500"
+                    <span className="text-xl md:text-2xl font-bold text-green-700 dark:text-green-400 animate-in zoom-in-95 duration-500"
                       style={{ 
                         animationDelay: `${200 + index * 100}ms`,
-                        animationFillMode: 'both'
                       }}
                     >{digit}</span>
                   </div>
                 ))}
               </div>
-
-              {/* Add keyframe animation for the pulse effect */}
-              <style jsx global>{`
-                @keyframes pulse-border {
-                  0% {
-                    border-color: rgba(22, 163, 74, 0.2);
-                    background-color: rgba(22, 163, 74, 0.05);
-                    box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.5);
-                  }
-                  20% {
-                    border-color: rgba(22, 163, 74, 1);
-                    background-color: rgba(22, 163, 74, 0.1);
-                    box-shadow: 0 0 0 10px rgba(22, 163, 74, 0);
-                  }
-                  100% {
-                    border-color: rgba(22, 163, 74, 0.5);
-                    background-color: rgba(22, 163, 74, 0.05);
-                    box-shadow: 0 0 0 0 rgba(22, 163, 74, 0);
-                  }
-                }
-              `}</style>
               
               {fullSms && (
                 <div className="mt-2 md:mt-4">
@@ -346,7 +387,7 @@ export function ReceivedNumberView({
                       </div>
                     </Button>
                   </div>
-                  <div className="p-3 rounded-md border border-primary/10 bg-muted/20 text-sm md:text-base overflow-auto max-h-28">
+                  <div className="p-3 rounded-md border border-green-500/20 bg-muted/20 text-sm md:text-base overflow-auto max-h-28">
                     {fullSms}
                   </div>
                 </div>
@@ -372,13 +413,21 @@ export function ReceivedNumberView({
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
-                variant="outline"
-                onClick={handleBanNumber}
-                disabled={isLoading || isOrderCancelled || isOrderFinished}
+                variant={isOrderBanned ? "outline" : "outline"}
+                onClick={handleBanWithState}
+                disabled={isActionDisabled('ban')}
                 className="w-full h-10 text-sm"
               >
-                {isLoading ? (
-                  <Spinner className="h-4 w-4" />
+                {isBanning ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <Spinner className="h-4 w-4" />
+                    <span>Banning...</span>
+                  </div>
+                ) : isOrderBanned ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <Ban className="h-4 w-4" />
+                    <span>Number Banned</span>
+                  </div>
                 ) : (
                   <div className="flex items-center justify-center gap-2">
                     <Ban className="h-4 w-4" />
@@ -388,7 +437,7 @@ export function ReceivedNumberView({
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              <p>Ban this number if you received spam</p>
+              <p>{isOrderBanned ? "This number has been banned" : "Ban this number if you received spam"}</p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -398,12 +447,25 @@ export function ReceivedNumberView({
             <TooltipTrigger asChild>
               <Button
                 variant="outline"
-                onClick={handleCancelOrder}
-                disabled={isLoading || isOrderCancelled || isOrderFinished}
+                onClick={handleCancelWithState}
+                disabled={isActionDisabled('cancel')}
                 className="w-full h-10 text-sm"
               >
-                {isLoading ? (
-                  <Spinner className="h-4 w-4" />
+                {isCancelling ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <Spinner className="h-4 w-4" />
+                    <span>Cancelling...</span>
+                  </div>
+                ) : isOrderBanned ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <XCircle className="h-4 w-4" />
+                    <span>Order Banned</span>
+                  </div>
+                ) : isOrderCancelled ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <XCircle className="h-4 w-4" />
+                    <span>Order Cancelled</span>
+                  </div>
                 ) : (
                   <div className="flex items-center justify-center gap-2">
                     <XCircle className="h-4 w-4" />
@@ -413,12 +475,18 @@ export function ReceivedNumberView({
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              <p>Cancel this order</p>
+              <p>
+                {isOrderBanned 
+                  ? "This order has been banned" 
+                  : isOrderCancelled 
+                    ? "This order has been cancelled" 
+                    : "Cancel this order"}
+              </p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
 
-        {/* Only show Complete Order button when SMS has been received (smsCode exists) */}
+        {/* Complete Order button */}
         {isOrderFinished ? (
           <Button 
             variant="outline" 
@@ -434,7 +502,7 @@ export function ReceivedNumberView({
           <Button
             variant="default"
             onClick={handleFinishOrder}
-            disabled={isLoading || isOrderCancelled || isOrderFinished}
+            disabled={isActionDisabled('finish')}
             className="w-full h-10 text-sm"
           >
             {isLoading ? (
@@ -457,7 +525,7 @@ export function ReceivedNumberView({
           >
             <div className="flex items-center justify-center gap-2">
               <CircleCheck className="h-4 w-4" />
-              <span>Waiting for SMS...</span>
+              <span>Complete Order</span>
             </div>
           </Button>
         )}

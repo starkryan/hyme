@@ -123,7 +123,24 @@ export default {
   					transform: 'translate(100%, 0%)',
   					opacity: '0'
   				}
-  			}
+  			},
+              'pulse-border': {
+                '0%': {
+                  'border-color': 'rgba(22, 163, 74, 0.2)',
+                  'background-color': 'rgba(22, 163, 74, 0.05)',
+                  'box-shadow': '0 0 0 0 rgba(22, 163, 74, 0.5)'
+                },
+                '20%': {
+                  'border-color': 'rgba(22, 163, 74, 1)',
+                  'background-color': 'rgba(22, 163, 74, 0.1)',
+                  'box-shadow': '0 0 0 10px rgba(22, 163, 74, 0)'
+                },
+                '100%': {
+                  'border-color': 'rgba(22, 163, 74, 0.5)',
+                  'background-color': 'rgba(22, 163, 74, 0.05)',
+                  'box-shadow': '0 0 0 0 rgba(22, 163, 74, 0)'
+                }
+              }
   		},
   		animation: {
   			'accordion-down': 'accordion-down 0.2s ease-out',
@@ -131,7 +148,8 @@ export default {
   			'caret-blink': 'caret-blink 1.25s ease-out infinite',
   			rainbow: 'rainbow var(--speed, 2s) infinite linear',
   			'star-movement-bottom': 'star-movement-bottom linear infinite alternate',
-  			'star-movement-top': 'star-movement-top linear infinite alternate'
+  			'star-movement-top': 'star-movement-top linear infinite alternate',
+              'pulse-border': 'pulse-border 2s ease-out infinite'
   		},
   		backgroundImage: {
   			'grid-pattern': 'url("/grid-pattern.svg")',

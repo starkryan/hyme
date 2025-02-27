@@ -668,11 +668,17 @@ const GetVirtualNumber = () => {
       }
       
       if (data.error) {
+        // Check if this is an error about unavailable numbers
+        if (data.error.includes("missing phone number") || 
+            data.error.includes("no free phones") || 
+            data.error.includes("out of stock")) {
+          throw new Error("No phone numbers available for this service/country. Please try another service or country.");
+        }
         throw new Error(data.error);
       }
 
       if (!data.phone || !data.id) {
-        throw new Error("Invalid response: missing phone number or order ID");
+        throw new Error("No phone numbers available for this service/country. Please try another service or country.");
       }
 
       // 3. Update state early to provide fast user feedback
@@ -1277,77 +1283,92 @@ const GetVirtualNumber = () => {
         return
       }
 
-      // Finish order in 5sim
-      const data = await finishOrder(orderId)
-      console.log("Finish order response:", data)
+      try {
+        // Finish order in 5sim
+        const data = await finishOrder(orderId)
+        console.log("Finish order response:", data)
 
-      if (data) {
-        // Update UI state first
-        toast.success("Order marked as finished successfully.")
-        setOrderStatus("FINISHED")
-        setIsOrderFinished(true)
-        
-        // Clear any timers
-        if (smsCheckInterval.current) {
-          clearInterval(smsCheckInterval.current as unknown as number)
-          smsCheckInterval.current = null
-        }
-        
-        // Update status in database
-        try {
-          // If SMS was received, no refund should happen
-          console.log("Updating status to FINISHED, SMS received:", hasReceivedSms)
-          await updateVirtualNumberStatus(user.id, orderId.toString(), 'FINISHED')
-          // Clear persisted data
-          clearOtpData()
-        } catch (dbError) {
-          console.error("Error updating database after finishing order:", dbError)
-          // Still clear OTP data
-          clearOtpData()
-        }
-        
-        // Reset UI state immediately instead of with delay
-        resetUIState()
-      } else {
-        // Handle the case where finishing fails but it could be already finished
-        // Check status again
-        const recheckedOrder = await getSmsCode(orderId.toString())
-        
-        if (recheckedOrder && (recheckedOrder.status === "FINISHED" || recheckedOrder.status === "BANNED")) {
-          // Order is already finished, so update our UI to match
-          toast.success(`Order was already ${recheckedOrder.status.toLowerCase()}.`)
-          setOrderStatus(recheckedOrder.status as OrderStatus)
+        if (data) {
+          // Update UI state first
+          toast.success("Order marked as finished successfully.")
+          setOrderStatus("FINISHED")
           setIsOrderFinished(true)
           
+          // Clear any timers
           if (smsCheckInterval.current) {
             clearInterval(smsCheckInterval.current as unknown as number)
             smsCheckInterval.current = null
           }
           
-          // Try to update database status
+          // Update status in database
           try {
-            await updateVirtualNumberStatus(user.id, orderId.toString(), recheckedOrder.status)
+            // If SMS was received, no refund should happen
+            console.log("Updating status to FINISHED, SMS received:", hasReceivedSms)
+            await updateVirtualNumberStatus(user.id, orderId.toString(), 'FINISHED')
+            // Clear persisted data
             clearOtpData()
           } catch (dbError) {
-            console.error("Error updating database for rechecked order:", dbError)
+            console.error("Error updating database after finishing order:", dbError)
+            // Still clear OTP data
             clearOtpData()
           }
           
-          // Reset UI state immediately
+          // Reset UI state immediately instead of with delay
           resetUIState()
-        } else {
-          setError("Failed to finish order. Please try again or refresh the page.")
-          toast.error("Failed to finish order.")
-          
-          // Try to refresh the component state
-          await refreshComponent()
+          return
         }
+      } catch (finishError: any) {
+        // Handle specific 5sim API errors
+        console.error("Error from 5sim finish API:", finishError);
+        
+        // Check if this is an "order not found" error which likely means it was already finished
+        const errorMessage = finishError.message || "";
+        if (errorMessage.includes("order not found") || errorMessage.includes("400")) {
+          console.log("Order likely already completed, rechecking status...");
+        } else {
+          // Re-throw for the outer catch block if not an expected error
+          throw finishError;
+        }
+      }
+        
+      // Handle the case where finishing fails but it could be already finished
+      // Check status again
+      const recheckedOrder = await getSmsCode(orderId.toString())
+      
+      if (recheckedOrder && (recheckedOrder.status === "FINISHED" || recheckedOrder.status === "BANNED")) {
+        // Order is already finished, so update our UI to match
+        toast.success(`Order was already ${recheckedOrder.status.toLowerCase()}.`)
+        setOrderStatus(recheckedOrder.status as OrderStatus)
+        setIsOrderFinished(true)
+        
+        if (smsCheckInterval.current) {
+          clearInterval(smsCheckInterval.current as unknown as number)
+          smsCheckInterval.current = null
+        }
+        
+        // Try to update database status
+        try {
+          await updateVirtualNumberStatus(user.id, orderId.toString(), recheckedOrder.status)
+          clearOtpData()
+        } catch (dbError) {
+          console.error("Error updating database for rechecked order:", dbError)
+          clearOtpData()
+        }
+        
+        // Reset UI state immediately
+        resetUIState()
+      } else {
+        setError("Failed to finish order. Please try again or refresh the page.")
+        toast.error("Failed to finish order.")
+        
+        // Try to refresh the component state
+        await refreshComponent()
       }
     } catch (e: any) {
       console.error("Error finishing order:", e)
       
       // Special handling for common errors
-      if (e.message && e.message.includes("already finished")) {
+      if (e.message && (e.message.includes("already finished") || e.message.includes("order not found"))) {
         toast.success("Order was already completed.")
         setOrderStatus("FINISHED")
         setIsOrderFinished(true)
@@ -1863,7 +1884,7 @@ const GetVirtualNumber = () => {
   };
 
   return (
-    <Card className="w-full max-w-4xl mx-auto overflow-hidden">
+    <Card className="w-full ">
       <CardHeader className="sticky top-0 bg-background z-10 border-b px-4 py-3 sm:p-6">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-4">
           <CardTitle className="text-xl sm:text-2xl font-bold">Virtual Number Service</CardTitle>

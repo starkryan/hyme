@@ -992,6 +992,25 @@ export const completeVerification = async (
         response = await finishOrder(Number(orderId));
         break;
       case 'cancel':
+        // Check if the order exists before attempting to cancel
+        try {
+          // Check order status first
+          const orderCheck = await getSmsCode(orderId);
+          // If order doesn't exist or is in a final state, don't try to cancel
+          if (!orderCheck || 
+              orderCheck.status === OrderStatus.FINISHED || 
+              orderCheck.status === OrderStatus.BANNED ||
+              orderCheck.status === OrderStatus.CANCELED) {
+            return {
+              success: true,
+              message: `Order already in final state (${orderCheck?.status || 'NOT_FOUND'})`,
+              status: orderCheck?.status || OrderStatus.FINISHED
+            };
+          }
+        } catch (checkError) {
+          console.log("Error checking order before cancel:", checkError);
+          // Continue with cancel attempt even if check fails
+        }
         response = await cancelOrder(orderId);
         break;
       case 'ban':

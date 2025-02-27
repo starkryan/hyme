@@ -17,7 +17,7 @@ export default function RechargePage() {
   }
 
   return (
-    <div className="container px-4 sm:px-6 mx-auto py-6 sm:py-10 space-y-4 sm:space-y-8 max-w-6xl">
+    <div className="w-full">
       <Card className="shadow-sm">
         <CardHeader className="px-4 sm:px-6 py-4 sm:py-6">
           <CardTitle className="text-xl sm:text-2xl">Recharge Wallet</CardTitle>
