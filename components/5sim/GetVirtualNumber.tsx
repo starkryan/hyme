@@ -45,18 +45,22 @@ import { createOtpSession, updateOtpSession, getActiveOtpSession, deleteOtpSessi
 import { Skeleton } from "@/components/ui/skeleton"
 import { useQuery } from '@tanstack/react-query'
 
-// Create a simple component for country flags
+// Replace the image-based CountryFlag component with an emoji-based one
 const CountryFlag = ({ iso }: { iso: string }) => {
+  // Convert ISO code to regional indicator symbols (emoji flag)
+  // Each country's ISO code (2 letters) maps to a pair of regional indicator symbols
+  const getFlagEmoji = (countryCode: string): string => {
+    const codePoints = countryCode
+      .toUpperCase()
+      .split('')
+      .map(char => 127397 + char.charCodeAt(0));
+    return String.fromCodePoint(...codePoints);
+  };
+
   return (
-    <img 
-      src={`https://flagcdn.com/24x18/${iso.toLowerCase()}.png`}
-      srcSet={`https://flagcdn.com/48x36/${iso.toLowerCase()}.png 2x, https://flagcdn.com/72x54/${iso.toLowerCase()}.png 3x`}
-      width="24"
-      height="18"
-      alt=""
-      className="mr-2 rounded-sm"
-      loading="lazy"
-    />
+    <span className="text-xl mr-2" role="img" aria-label="flag">
+      {getFlagEmoji(iso)}
+    </span>
   );
 };
 
@@ -1993,7 +1997,16 @@ const GetVirtualNumber = () => {
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                <PopoverContent 
+                  className="w-[var(--radix-popover-trigger-width)] p-0 z-50 max-h-[70vh] overflow-auto" 
+                  align="start"
+                  side="bottom"
+                  sideOffset={5}
+                  alignOffset={0}
+                  avoidCollisions={true}
+                  collisionPadding={{ top: 10, bottom: 70, left: 10, right: 10 }}
+                  sticky="always"
+                >
                   <Command className="w-full">
                     <CommandInput
                       placeholder="Search countries..."
@@ -2003,7 +2016,7 @@ const GetVirtualNumber = () => {
                     />
                     <CommandList>
                       <CommandEmpty>No countries found</CommandEmpty>
-                      <CommandGroup className="max-h-[40vh] overflow-auto">
+                      <CommandGroup className="max-h-[50vh] overflow-auto">
                         {Array.isArray(filteredCountries) &&
                           filteredCountries.map((country) => (
                             <CommandItem
@@ -2078,7 +2091,16 @@ const GetVirtualNumber = () => {
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
+                <PopoverContent 
+                  className="w-[var(--radix-popover-trigger-width)] p-0 z-50 max-h-[70vh] overflow-auto"
+                  align="start"
+                  side="bottom"
+                  sideOffset={5}
+                  alignOffset={0}
+                  avoidCollisions={true}
+                  collisionPadding={{ top: 10, bottom: 70, left: 10, right: 10 }}
+                  sticky="always"
+                >
                   <Command>
                     <CommandInput
                       placeholder="Search services..."
@@ -2088,7 +2110,7 @@ const GetVirtualNumber = () => {
                     />
                     <CommandList>
                       <CommandEmpty>No service found.</CommandEmpty>
-                      <CommandGroup className="max-h-[40vh] overflow-auto">
+                      <CommandGroup className="max-h-[50vh] overflow-auto">
                         {products.map((product) => (
                           <CommandItem
                             key={product.id}
@@ -2156,12 +2178,21 @@ const GetVirtualNumber = () => {
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
+                <PopoverContent 
+                  className="w-[var(--radix-popover-trigger-width)] p-0 z-50 max-h-[70vh] overflow-auto"
+                  align="start"
+                  side="bottom"
+                  sideOffset={5}
+                  alignOffset={0}
+                  avoidCollisions={true}
+                  collisionPadding={{ top: 10, bottom: 70, left: 10, right: 10 }}
+                  sticky="always"
+                >
                   <Command className="w-full">
                     <CommandInput className="w-full text-sm" placeholder="Search providers..." />
                     <CommandList className="w-full">
                       <CommandEmpty>No provider found.</CommandEmpty>
-                      <CommandGroup className="max-h-[40vh] overflow-auto">
+                      <CommandGroup className="max-h-[50vh] overflow-auto">
                         {operators.map((operator) => (
                           <CommandItem
                             key={operator.id}
