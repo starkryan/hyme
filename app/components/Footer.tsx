@@ -10,7 +10,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { Facebook, Instagram, Linkedin, Moon, Send, Sun, Twitter } from "lucide-react"
+import { Linkedin, Moon, Sun, Twitter } from "lucide-react"
 
 function Footerdemo() {
   const [isDarkMode, setIsDarkMode] = React.useState(false);
@@ -34,24 +34,24 @@ function Footerdemo() {
 
   return (
     <footer className="w-full border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container mx-auto px-4 py-8 w-full max-w-7xl">
-        <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-2">
+      <div className="container mx-auto px-4 py-6 sm:py-8 w-full max-w-7xl">
+        <div className="grid gap-6 sm:gap-8 md:grid-cols-2 lg:grid-cols-2">
           <div>
-            <h3 className="mb-4 text-lg font-semibold">Quick Links</h3>
+            <h3 className="mb-4 text-lg font-semibold">OTPMaya</h3>
             <nav className="space-y-2 text-sm">
-              <a href="#" className="block transition-colors hover:text-primary">
+              <a href="/" className="block transition-colors hover:text-primary">
                 Home
               </a>
-              <a href="#" className="block transition-colors hover:text-primary">
-                API Documentation
+              <a href="/recharge" className="block transition-colors hover:text-primary">
+                Recharge Wallet
               </a>
-              <a href="#" className="block transition-colors hover:text-primary">
-                Pricing
+              <a href="/transactions" className="block transition-colors hover:text-primary">
+                Transactions
               </a>
-              <a href="#" className="block transition-colors hover:text-primary">
-                Integration Guide
+              <a href="/dashboard" className="block transition-colors hover:text-primary">
+                Dashboard
               </a>
-              <a href="#" className="block transition-colors hover:text-primary">
+              <a href="/support" className="block transition-colors hover:text-primary">
                 Support
               </a>
             </nav>
@@ -100,19 +100,16 @@ function Footerdemo() {
             </div>
           </div>
         </div>
-        <div className="mt-8 flex flex-col items-center justify-between gap-4 border-t pt-8 text-center md:flex-row">
+        <div className="mt-6 sm:mt-8 flex flex-col items-center justify-between gap-4 border-t pt-6 sm:pt-8 text-center md:flex-row">
           <p className="text-sm text-muted-foreground">
             © 2024 OTPMaya. All rights reserved.
           </p>
           <nav className="flex gap-4 text-sm">
-            <a href="#" className="transition-colors hover:text-primary">
+            <a href="/privacy" className="transition-colors hover:text-primary">
               Privacy Policy
             </a>
-            <a href="#" className="transition-colors hover:text-primary">
+            <a href="/terms" className="transition-colors hover:text-primary">
               Terms of Service
-            </a>
-            <a href="#" className="transition-colors hover:text-primary">
-              Cookie Settings
             </a>
           </nav>
         </div>

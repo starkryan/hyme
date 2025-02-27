@@ -13,28 +13,28 @@ export default function RechargePage() {
   const [showHistory, setShowHistory] = useState(false)
 
   if (!isLoaded) {
-    return <div>Loading...</div>
+    return <div className="flex justify-center items-center min-h-[50vh]">Loading...</div>
   }
 
   return (
-    <div className="container max-w-6xl mx-auto py-10 space-y-8">
-      <Card>
-        <CardHeader>
-          <CardTitle>Recharge Wallet</CardTitle>
-          <CardDescription>
+    <div className="container px-4 sm:px-6 mx-auto py-6 sm:py-10 space-y-4 sm:space-y-8 max-w-6xl">
+      <Card className="shadow-sm">
+        <CardHeader className="px-4 sm:px-6 py-4 sm:py-6">
+          <CardTitle className="text-xl sm:text-2xl">Recharge Wallet</CardTitle>
+          <CardDescription className="text-sm sm:text-base">
             Add money to your wallet using UPI payment
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-4 sm:px-6 pb-6">
           <RechargeForm />
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+      <Card className="shadow-sm">
+        <CardHeader className="flex flex-row items-center justify-between px-4 sm:px-6 py-4 sm:py-6">
           <div>
-            <CardTitle>Recharge History</CardTitle>
-            <CardDescription>
+            <CardTitle className="text-xl sm:text-2xl">Recharge History</CardTitle>
+            <CardDescription className="text-sm sm:text-base">
               View your recharge request history
             </CardDescription>
           </div>
@@ -43,6 +43,8 @@ export default function RechargePage() {
             size="sm"
             onClick={() => setShowHistory(!showHistory)}
             className="ml-auto"
+            aria-expanded={showHistory}
+            aria-label="Toggle history visibility"
           >
             {showHistory ? (
               <ChevronUp className="h-4 w-4" />
@@ -53,7 +55,7 @@ export default function RechargePage() {
           </Button>
         </CardHeader>
         {showHistory && (
-          <CardContent>
+          <CardContent className="px-4 sm:px-6 pb-6">
             <RechargeHistory />
           </CardContent>
         )}
