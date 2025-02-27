@@ -44,6 +44,7 @@ import { createOtpSession, getActiveOtpSession } from "@/lib/otpSessionService"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useQuery } from '@tanstack/react-query'
 import { ReceivedNumberView } from "./ReceivedNumberView"
+import axios from 'axios'
 
 // Replace the image-based CountryFlag component with an emoji-based one
 const CountryFlag = ({ iso }: { iso: string }) => {
@@ -94,6 +95,9 @@ interface Country {
   prefix: string
 }
 
+// Add a constant for the commission rate
+const COMMISSION_RATE = 0.30; // 30% commission
+
 const GetVirtualNumber = () => {
   const { user } = useUser()
   const { otpData, updateOtpData, clearOtpData } = useOtpPersist("virtual-number-otp")
@@ -141,7 +145,8 @@ const GetVirtualNumber = () => {
   const [isCopyingOtp, setIsCopyingOtp] = useState(false)
   const [isOrderIdCopied, setIsOrderIdCopied] = useState(false)
   const [isSmsCodeCopied, setIsSmsCodeCopied] = useState(false)
-
+  const [usingFallbackRate, setUsingFallbackRate] = useState(false);
+  
   // Add this query for real-time wallet balance
   const { 
     data: walletBalance = 0, 
@@ -181,8 +186,108 @@ const GetVirtualNumber = () => {
   // Add this line near other useRefs
   const retryAttemptsRef = useRef(0)
 
+  // Add this query to fetch real-time exchange rate with improved fallback
+  const { 
+    data: exchangeRate = 0.99, // Default fallback rate
+    isLoading: isExchangeRateLoading,
+    error: exchangeRateError,
+    isError: isExchangeRateError
+  } = useQuery({
+    queryKey: ['exchangeRate', 'RUB_INR'],
+    queryFn: async () => {
+      try {
+        // Try to get saved rate from localStorage as initial fallback
+        const savedRate = localStorage.getItem('rub_inr_rate');
+        const savedTimestamp = localStorage.getItem('rub_inr_timestamp');
+        const savedRateAge = savedTimestamp ? (Date.now() - parseInt(savedTimestamp)) / (1000 * 60 * 60) : 24; // Age in hours
+        
+        // Free currency API - try primary source first
+        const response = await axios.get('https://open.er-api.com/v6/latest/RUB', {
+          timeout: 5000 // 5 second timeout
+        });
+        
+        if (response.data && response.data.rates && response.data.rates.INR) {
+          const inrRate = response.data.rates.INR;
+          console.log('Fetched RUB to INR rate:', inrRate);
+          
+          // Save successful rate to localStorage
+          localStorage.setItem('rub_inr_rate', inrRate.toString());
+          localStorage.setItem('rub_inr_timestamp', Date.now().toString());
+          
+          setUsingFallbackRate(false);
+          return inrRate;
+        }
+        
+        // If API response is invalid but we have a recent saved rate (less than 24 hours old)
+        if (savedRate && savedRateAge < 24) {
+          console.log('Using saved exchange rate:', savedRate);
+          setUsingFallbackRate(true);
+          return parseFloat(savedRate);
+        }
+        
+        // Final fallback
+        console.log('Using default exchange rate');
+        setUsingFallbackRate(true);
+        return 0.99;
+      } catch (error) {
+        console.error('Error fetching exchange rate:', error);
+        
+        // Try backup API if primary fails
+        try {
+          console.log('Trying backup exchange rate API...');
+          const backupResponse = await axios.get('https://cdn.jsdelivr.net/gh/fawazahmed0/currency-api@1/latest/currencies/rub/inr.json', {
+            timeout: 5000
+          });
+          
+          if (backupResponse.data && backupResponse.data.inr) {
+            const backupRate = backupResponse.data.inr;
+            console.log('Fetched backup RUB to INR rate:', backupRate);
+            
+            // Save successful backup rate
+            localStorage.setItem('rub_inr_rate', backupRate.toString());
+            localStorage.setItem('rub_inr_timestamp', Date.now().toString());
+            
+            setUsingFallbackRate(true); // Still mark as fallback since it's not the primary source
+            return backupRate;
+          }
+        } catch (backupError) {
+          console.error('Backup exchange rate API also failed:', backupError);
+        }
+        
+        // Try to use saved rate if available
+        const savedRate = localStorage.getItem('rub_inr_rate');
+        if (savedRate) {
+          console.log('Using previously saved exchange rate:', savedRate);
+          setUsingFallbackRate(true);
+          return parseFloat(savedRate);
+        }
+        
+        // Ultimate fallback
+        setUsingFallbackRate(true);
+        return 0.99;
+      }
+    },
+    staleTime: 1000 * 60 * 60, // Consider data fresh for 1 hour
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
+
+  // Update the convertToINR function to include the commission
   const convertToINR = (rubPrice: number): number => {
-    return Math.ceil(rubPrice * RUB_TO_INR_RATE)
+    const basePrice = rubPrice * exchangeRate;
+    const withCommission = basePrice * (1 + COMMISSION_RATE);
+    return Math.ceil(withCommission);
+  }
+
+  // Add this helper function to get the base price (for display purposes)
+  const getBasePrice = (rubPrice: number): number => {
+    return Math.ceil(rubPrice * exchangeRate);
+  }
+
+  // Add this to calculate the commission amount (for display purposes)
+  const getCommissionAmount = (rubPrice: number): number => {
+    const basePrice = getBasePrice(rubPrice);
+    return Math.ceil(basePrice * COMMISSION_RATE);
   }
 
   // Add a comprehensive reset function to reset the UI state
