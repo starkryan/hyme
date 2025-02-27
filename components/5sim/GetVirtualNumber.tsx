@@ -45,6 +45,20 @@ import { createOtpSession, updateOtpSession, getActiveOtpSession, deleteOtpSessi
 import { Skeleton } from "@/components/ui/skeleton"
 import { useQuery } from '@tanstack/react-query'
 
+// Create a simple component for country flags
+const CountryFlag = ({ iso }: { iso: string }) => {
+  return (
+    <img 
+      src={`https://flagcdn.com/24x18/${iso.toLowerCase()}.png`}
+      srcSet={`https://flagcdn.com/48x36/${iso.toLowerCase()}.png 2x, https://flagcdn.com/72x54/${iso.toLowerCase()}.png 3x`}
+      width="24"
+      height="18"
+      alt=""
+      className="mr-2 rounded-sm"
+      loading="lazy"
+    />
+  );
+};
 
 interface Product {
   id: string
@@ -1957,14 +1971,21 @@ const GetVirtualNumber = () => {
                       <Spinner className="h-4 w-4" />
                     ) : selectedCountry ? (
                       <div className="flex items-center justify-between w-full">
-                        <span className="truncate">
+                        <div className="flex items-center truncate">
                           {(() => {
                             const country = countries.find((c) => c.code === selectedCountry);
-                            return country ? 
-                              country.name.charAt(0).toUpperCase() + country.name.slice(1).toLowerCase() :
-                              selectedCountry;
+                            return country ? (
+                              <>
+                                <CountryFlag iso={country.iso} />
+                                <span className="truncate">
+                                  {country.name.charAt(0).toUpperCase() + country.name.slice(1).toLowerCase()}
+                                </span>
+                              </>
+                            ) : (
+                              selectedCountry
+                            );
                           })()}
-                        </span>
+                        </div>
                       </div>
                     ) : (
                       <span className="text-muted-foreground">Select country</span>
@@ -2001,6 +2022,7 @@ const GetVirtualNumber = () => {
                                     selectedCountry === country.prefix ? "opacity-100" : "opacity-0",
                                   )}
                                 />
+                                <CountryFlag iso={country.iso} />
                                 <span className="truncate capitalize">
                                   {country.name.charAt(0).toUpperCase() + country.name.slice(1).toLowerCase()}
                                 </span>
