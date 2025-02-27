@@ -425,7 +425,7 @@ export const getOperators = async (
 
 export const getPrices = async ({ country }: { country?: string } = {}): Promise<any> => {
   try {
-    const endpoint = '/v1/guest/prices' + (country ? `?country=${country}` : '');
+    const endpoint = '/guest/prices' + (country ? `?country=${country}` : '');
     console.log('Fetching prices from:', endpoint);
     
     const response = await axios.get(endpoint, {
@@ -664,7 +664,7 @@ export const cancelOrder = async (orderId: string): Promise<any | undefined> => 
   try {
     console.log(`Attempting to cancel order ${orderId}...`);
     
-    const url = `${API_URL}/v1/user/cancel/${orderId}`;
+    const url = `${API_URL}/user/cancel/${orderId}`;
     
     const response = await fetch(url, {
       method: 'GET',

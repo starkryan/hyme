@@ -29,21 +29,21 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
-import { Copy, Check, AlertTriangle, XCircle, CircleCheck, Ban, ChevronsUpDown, RefreshCw, Wallet } from "lucide-react"
+import { Check, AlertTriangle, ChevronsUpDown, RefreshCw, Wallet } from "lucide-react"
 import { Label } from "@/components/ui/label"
 import { Spinner } from "@/components/ui/spinner"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
-import { Progress } from "@/components/ui/progress"
 import { useUser } from "@clerk/nextjs"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Separator } from "@/components/ui/separator"
 import * as React from "react"
 import { useOtpPersist } from "@/hooks/useOtpPersist"
-import { createOtpSession, updateOtpSession, getActiveOtpSession, deleteOtpSession } from "@/lib/otpSessionService"
+import { createOtpSession, getActiveOtpSession } from "@/lib/otpSessionService"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useQuery } from '@tanstack/react-query'
+import { ReceivedNumberView } from "./ReceivedNumberView"
 
 // Replace the image-based CountryFlag component with an emoji-based one
 const CountryFlag = ({ iso }: { iso: string }) => {
@@ -186,8 +186,43 @@ const GetVirtualNumber = () => {
   }
 
   // Add a comprehensive reset function to reset the UI state
-  const resetUIState = () => {
+  const resetUIState = async () => {
     console.log("Resetting UI state to allow new selection...")
+    
+    // Auto-cancel any active order that's not already cancelled or finished
+    if (orderId && orderStatus && !isOrderCancelled && !isOrderFinished && 
+        (orderStatus === "PENDING" || orderStatus === "RECEIVED")) {
+      try {
+        console.log(`Auto-cancelling active order ${orderId} before resetting...`);
+        // Show toast for auto-cancellation
+        toast.info("Cancelling your active order...", {
+          duration: 3000
+        });
+        
+        // Try to cancel the order on 5sim
+        await cancelOrder(orderId.toString());
+        
+        // If there's a transaction, process the refund
+        const transactionIdToUse = savedTransaction.current?.id || 
+          localStorage.getItem('lastVirtualNumberTransaction');
+          
+        if (transactionIdToUse && user) {
+          console.log(`Processing refund for cancelled order transaction ${transactionIdToUse}`);
+          await handleVirtualNumberRefund(user.id, transactionIdToUse, "CANCELED");
+        }
+        
+        // Force a wallet balance update
+        await forceBalanceUpdate();
+      } catch (error) {
+        console.error("Error auto-cancelling order during reset:", error);
+        // Continue with reset even if cancellation fails
+      }
+    }
+    
+    // Provide user feedback
+    toast.success("Ready to get a new number", {
+      description: "Select country, service and operator to continue"
+    })
     
     // Reset selection state
     setSelectedProduct("")
@@ -248,13 +283,6 @@ const GetVirtualNumber = () => {
     
     // Clear persisted data
     clearOtpData()
-    
-    // Keep countries, products, and operators data loaded
-    // but we'll reset operators when product changes anyway
-    
-    toast.success("Ready for a new order", {
-      description: "You can now select a new service"
-    })
   }
 
   useEffect(() => {
@@ -427,121 +455,55 @@ const GetVirtualNumber = () => {
 
   // Add a new function to synchronize local state with 5SIM API
   const syncOrderStatus = async (orderId: string) => {
-    if (!orderId || !user) {
-      console.warn("Cannot sync order status: missing order ID or user");
-      return;
-    }
-
+    console.log(`Syncing order status for order: ${orderId}`);
+    
     try {
-      console.log(`Syncing order status for order ${orderId}...`);
+      setIsCheckingSms(true);
       
-      // Get the current status from 5SIM API
-      const orderCheck = await getSmsCode(orderId.toString());
+      const response = await getSmsCode(orderId);
+      console.log("API response:", response);
       
-      if (!orderCheck) {
-        console.warn(`No data returned from 5SIM for order ${orderId}`);
-        return;
+      // Handle response being undefined
+      if (!response) {
+        console.warn("No response received from the API");
+        return null;
       }
       
-      const currentStatus = orderCheck.status as OrderStatus;
-      console.log(`Order ${orderId} status from API: ${currentStatus}`);
+      // Update state with order details
+      setOrderStatus(response.status);
+      setOrderCreatedAt(new Date(response.created_at));
       
-      // Skip processing if status hasn't changed
-      if (currentStatus === orderStatus) {
-        console.log(`Order status unchanged (${currentStatus}), skipping update`);
-        return;
-      }
-      
-      // Extract SMS data for easier access and improved readability
-      const hasSmsContent = orderCheck.sms && orderCheck.sms.length > 0;
-      const latestSms = hasSmsContent ? orderCheck.sms[orderCheck.sms.length - 1] : null;
-      const smsCode = latestSms?.code;
-      const smsText = latestSms?.text;
-      
-      // Update UI state
-      setOrderStatus(currentStatus);
-      
-      // Process different status scenarios
-      if (currentStatus === "RECEIVED" && hasSmsContent) {
-        // We have an SMS with content - update everything at once
-        setSmsCode(smsCode || null); // Convert undefined to null if needed
-        setFullSms(smsText || null); // Convert undefined to null if needed
+      // Check if SMS has been received
+      if (response?.sms && response.sms.length > 0) {
+        // Get the latest SMS
+        const latestSms = response.sms[response.sms.length - 1];
+        setSmsCode(latestSms?.code || null);
+        setFullSms(latestSms?.text || null);
         
-        // Update persisted data with all changes
-        updateOtpData({
-          orderStatus: currentStatus,
-          smsCode: smsCode || null,
-          fullSms: smsText || null
-        });
-        
-        // Notify user
-        toast.success("SMS Code Received!", {
-          description: `Your verification code is: ${smsCode}`,
-        });
-        
-        // Clean up timers since we have the SMS
-        cleanupTimers();
-      } 
-      else if (currentStatus === "RECEIVED") {
-        // Status is RECEIVED but no SMS content yet
-        console.log("Status RECEIVED but no SMS content yet - checking more frequently");
-        
-        // Persist just the status update
-        updateOtpData({ orderStatus: currentStatus });
-        
-        // Set up more frequent checking
+        // Stop checking for SMS since we've received it
         if (smsCheckInterval.current) {
-          // Reset the interval to be more frequent
           clearInterval(smsCheckInterval.current);
-          const moreFrequentInterval = setInterval(() => checkSms(Number(orderId)), 3000);
-          smsCheckInterval.current = moreFrequentInterval;
-        } else {
-          // Start checking if not already doing so
-          setIsCheckingSms(true);
-          retryAttemptsRef.current = 0;
-          setRetryAttempts(0);
-          
-          // Do an immediate check
-          checkSms(Number(orderId));
-          
-          // And set up interval for future checks
-          const moreFrequentInterval = setInterval(() => checkSms(Number(orderId)), 3000);
-          smsCheckInterval.current = moreFrequentInterval;
+          smsCheckInterval.current = null;
         }
         
-        toast.info("SMS sent by provider! Waiting for content...");
-      } 
-      else if (["FINISHED", "BANNED", "CANCELED"].includes(currentStatus)) {
-        // Terminal states handling
-        updateOtpData({ orderStatus: currentStatus });
-        cleanupTimers();
+        // Stop the timeout timer
+        setIsTimeoutActive(false);
+        if (timeoutTimer) {
+          clearTimeout(timeoutTimer);
+          setTimeoutTimer(null); // Fix: Use the setter function instead of direct assignment
+        }
         
-        // Set UI flags based on status
-        setIsOrderFinished(currentStatus === "FINISHED");
-        setIsOrderCancelled(currentStatus === "CANCELED");
-      } 
-      else {
-        // Any other status changes
-        updateOtpData({ orderStatus: currentStatus });
+        // Update balance after SMS received
+        await forceBalanceUpdate();
       }
-      
-      // Update database status in background without waiting
-      if (user) {
-        const skipRefund = currentStatus === "RECEIVED" && orderCheck.sms && orderCheck.sms.length > 0;
-        
-        updateVirtualNumberStatus(
-          user.id, 
-          orderId, 
-          currentStatus,
-          orderCheck.sms && orderCheck.sms.length > 0 ? orderCheck.sms[orderCheck.sms.length - 1].code : undefined,
-          orderCheck.sms && orderCheck.sms.length > 0 ? orderCheck.sms[orderCheck.sms.length - 1].text : undefined,
-          skipRefund
-        ).catch(err => {
-          console.error(`Error updating virtual number status in database: ${err.message}`);
-        });
-      }
+
+      return response;
     } catch (error) {
-      console.error(`Error syncing order status for ${orderId}:`, error);
+      console.error("Error syncing order status:", error);
+      setError("Failed to check order status. Please try again.");
+      return null;
+    } finally {
+      setIsCheckingSms(false);
     }
   };
 
@@ -1518,21 +1480,21 @@ const GetVirtualNumber = () => {
   }, [countries])
 
   const getStatusColor = (status: OrderStatus | null): "default" | "secondary" | "destructive" | "outline" => {
+    if (!status) return "outline"
+    
     switch (status) {
       case "PENDING":
-        return "secondary"
+        return "secondary" // Default yellow/orange for pending
       case "RECEIVED":
-        return "default"
-      case "CANCELED":
-        return "outline"
-      case "TIMEOUT":
-        return "destructive"
+        return "default" // Default green for received (success)
       case "FINISHED":
-        return "secondary"
+        return "outline" // Grey outline for finished
       case "BANNED":
-        return "destructive"
+      case "CANCELED":
+      case "TIMEOUT":
+        return "destructive" // Red for banned/canceled/timeout
       default:
-        return "outline"
+        return "outline" // Default is outline
     }
   }
 
@@ -2235,353 +2197,82 @@ const GetVirtualNumber = () => {
 
         {/* Action Section */}
         <div className="space-y-4">
-          {/* Get Number Button */}
-          {isLoading ? (
-            <Skeleton className="h-10 w-full md:w-40" />
-          ) : (
-            <Button
-              onClick={handleGetNumber}
-              disabled={isLoading || isOrderCancelled || !selectedOperator}
-              className="w-full md:w-auto h-10 text-sm"
-            >
+          {!number ? (
+            /* Show get number button when no number is active */
+            <>
               {isLoading ? (
-                <div className="flex items-center justify-center gap-2">
-                  <Spinner className="h-4 w-4" />
-                  <span>Getting Number...</span>
-                </div>
-              ) : (
-                <div className="flex items-center justify-center gap-2">
-                  <span>Get Virtual Number</span>
-                  {selectedOperatorDetails && (
-                    <Badge variant="secondary" className="ml-2 text-xs">
-                      ₹{convertToINR(selectedOperatorDetails.cost)}
-                    </Badge>
-                  )}
-                </div>
-              )}
-            </Button>
-          )}
-
-          {/* Display Number Information */}
-          {isLoading ? (
-            <NumberDisplaySkeleton />
-          ) : (
-            number && (
-              <Card className="mt-4 shadow-sm">
-                <CardContent className="space-y-4 p-4">
-                  <div className="flex flex-col md:flex-row md:items-center justify-between p-3 md:p-4 rounded-lg border gap-3 md:gap-0 bg-muted/10">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-base md:text-lg break-all">{number.phone}</span>
-                    </div>
-                    <div className="flex items-center gap-2 self-end md:self-auto">
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={refreshComponent}
-                              disabled={isLoading}
-                              className="h-9 w-9"
-                            >
-                              <RefreshCw className="h-4 w-4" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent side="bottom">
-                            <p>Refresh order status</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleCopyToClipboard(number.phone, setIsNumberCopied)}
-                        className="h-9 w-9"
-                      >
-                        {isNumberCopied ? (
-                          <Check className="h-4 w-4 text-green-500" />
-                        ) : (
-                          <Copy className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </div>
-                  </div>
-              
-                  {/* Order Details */}
-                  {orderCreatedAt && (
-                    <div className="flex flex-col md:flex-row md:items-center justify-between p-3 md:p-4 rounded-lg border gap-3 md:gap-4 bg-muted/10">
-                      <div className="grid grid-cols-2 md:flex md:items-center gap-3 md:gap-4 text-sm">
-                        <div>
-                          <p className="text-xs text-muted-foreground">Order ID</p>
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-xs md:text-sm">{orderId}</span>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleCopyToClipboard(String(orderId), setIsOrderIdCopied)}
-                              className="h-6 w-6"
-                            >
-                              {isOrderIdCopied ? (
-                                <Check className="h-3 w-3 text-green-500" />
-                              ) : (
-                                <Copy className="h-3 w-3" />
-                              )}
-                            </Button>
-                          </div>
-                        </div>
-                        
-                        <div>
-                          <p className="text-xs text-muted-foreground">Created</p>
-                          <p className="font-mono text-xs md:text-sm">
-                            {new Date(orderCreatedAt).toLocaleTimeString()}
-                          </p>
-                        </div>
-                        
-                        <div className="col-span-2 md:col-span-1">
-                          <p className="text-xs text-muted-foreground">Status</p>
-                          <Badge variant={getStatusColor(orderStatus)}>{orderStatus}</Badge>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )
-          )}
-
-          {/* Waiting for OTP */}
-          {(isCheckingSms || isRetrying) && !smsCode && (
-            <Card className="shadow-sm">
-              <CardContent className="space-y-3 p-4">
-                <div className="flex items-center justify-center gap-2">
-                  <Spinner className="h-4 w-4" />
-                  <span className="text-sm font-medium">
-                    {isRetrying ? `Checking for SMS (${retryAttempts + 1}/${maxRetryAttempts})` : "Waiting for OTP..."}
-                  </span>
-                </div>
-                {isTimeoutActive && timeLeft !== null && otpTimeout !== null && (
-                  <div className="space-y-2">
-                    <Progress value={((otpTimeout - timeLeft) / otpTimeout) * 100} className="h-2" />
-                    <p className="text-xs text-center text-muted-foreground">
-                      Expires in: {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, "0")}
-                    </p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Display SMS Code */}
-          {smsCode && (
-            <Card className="shadow-sm">
-              <CardContent className="space-y-3 p-4">
-                <div className="flex flex-col gap-3">
-                  <div className="flex items-center justify-between">
-                    <Badge variant="secondary" className="text-xs font-medium">
-                      OTP Code
-                    </Badge>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleCopyToClipboard(smsCode, setIsSmsCodeCopied)}
-                      className="h-8"
-                    >
-                      <div className="flex items-center gap-1">
-                        {isSmsCodeCopied ? (
-                          <>
-                            <Check className="h-4 w-4 text-green-500" />
-                            <span className="text-xs text-green-500">Copied</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="h-4 w-4" />
-                            <span className="text-xs">Copy</span>
-                          </>
-                        )}
-                      </div>
-                    </Button>
-                  </div>
-                  
-                  <div className="flex justify-center items-center gap-2 md:gap-3">
-                    {smsCode.split('').map((digit, index) => (
-                      <div 
-                        key={index} 
-                        className="flex items-center justify-center w-10 h-12 md:w-12 md:h-14 rounded-md border-2 border-primary/20 bg-background shadow-sm animate-in fade-in-50 duration-500 slide-in-from-bottom-3"
-                        style={{ 
-                          animationDelay: `${index * 100}ms`,
-                          animationFillMode: 'both',
-                          boxShadow: '0 0 0 0 rgba(22, 163, 74, 0.7)',
-                          animation: `
-                            fade-in-50 500ms ${index * 100}ms both,
-                            slide-in-from-bottom-3 500ms ${index * 100}ms both,
-                            pulse-border 2s ${500 + index * 100}ms ease-out
-                          `
-                        }}
-                      >
-                        <span className="text-xl md:text-2xl font-bold text-primary animate-in zoom-in-95 duration-500"
-                          style={{ 
-                            animationDelay: `${200 + index * 100}ms`,
-                            animationFillMode: 'both'
-                          }}
-                        >{digit}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Add keyframe animation for the pulse effect */}
-                  <style jsx global>{`
-                    @keyframes pulse-border {
-                      0% {
-                        border-color: rgba(22, 163, 74, 0.2);
-                        background-color: rgba(22, 163, 74, 0.05);
-                        box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.5);
-                      }
-                      20% {
-                        border-color: rgba(22, 163, 74, 1);
-                        background-color: rgba(22, 163, 74, 0.1);
-                        box-shadow: 0 0 0 10px rgba(22, 163, 74, 0);
-                      }
-                      100% {
-                        border-color: rgba(22, 163, 74, 0.5);
-                        background-color: rgba(22, 163, 74, 0.05);
-                        box-shadow: 0 0 0 0 rgba(22, 163, 74, 0);
-                      }
-                    }
-                  `}</style>
-                  
-                  {fullSms && (
-                    <div className="mt-2 md:mt-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <Badge variant="outline" className="text-xs">
-                          Full Message
-                        </Badge>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleCopyToClipboard(fullSms, setIsOtpCopied)}
-                          className="h-7"
-                        >
-                          <div className="flex items-center gap-1">
-                            {isOtpCopied ? (
-                              <>
-                                <Check className="h-3 w-3 text-green-500" />
-                                <span className="text-xs text-green-500">Copied</span>
-                              </>
-                            ) : (
-                              <>
-                                <Copy className="h-3 w-3" />
-                                <span className="text-xs">Copy</span>
-                              </>
-                            )}
-                          </div>
-                        </Button>
-                      </div>
-                      <div className="p-3 rounded-md border border-primary/10 bg-muted/20 text-sm md:text-base overflow-auto max-h-28">
-                        {fullSms}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Error Display */}
-          {error && (
-            <Card className="bg-destructive">
-              <CardContent className="flex items-center gap-2 p-2 sm:p-3">
-                <AlertTriangle className="h-3 w-3 sm:h-4 sm:w-4 shrink-0" />
-                <p className="text-xs sm:text-sm break-words">{error}</p>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Action Buttons */}
-          {number && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="outline"
-                      onClick={handleBanNumber}
-                      disabled={isLoading || isOrderCancelled || isOrderFinished}
-                      className="w-full h-10 text-sm"
-                    >
-                      {isLoading ? (
-                        <Spinner className="h-4 w-4" />
-                      ) : (
-                        <div className="flex items-center justify-center gap-2">
-                          <Ban className="h-4 w-4" />
-                          <span>Ban Number</span>
-                        </div>
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    <p>Ban this number if you received spam</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="outline"
-                      onClick={handleCancelOrder}
-                      disabled={isLoading || isOrderCancelled || isOrderFinished}
-                      className="w-full h-10 text-sm"
-                    >
-                      {isLoading ? (
-                        <Spinner className="h-4 w-4" />
-                      ) : (
-                        <div className="flex items-center justify-center gap-2">
-                          <XCircle className="h-4 w-4" />
-                          <span>Cancel Order</span>
-                        </div>
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    <p>Cancel this order</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-
-              {/* Finish button in the third column */}
-              {isOrderFinished ? (
-                <Button 
-                  variant="outline" 
-                  disabled 
-                  className="w-full h-10 text-sm"
-                >
-                  <div className="flex items-center justify-center gap-2">
-                    <CircleCheck className="h-4 w-4" />
-                    <span>Order Completed</span>
-                  </div>
-                </Button>
+                <Skeleton className="h-10 w-full md:w-40" />
               ) : (
                 <Button
-                  variant="default"
-                  onClick={handleFinishOrder}
-                  disabled={isLoading || isOrderCancelled || isOrderFinished}
-                  className="w-full h-10 text-sm"
+                  onClick={handleGetNumber}
+                  disabled={isLoading || isOrderCancelled || !selectedOperator}
+                  className="w-full md:w-auto h-10 text-sm"
                 >
                   {isLoading ? (
                     <div className="flex items-center justify-center gap-2">
                       <Spinner className="h-4 w-4" />
-                      <span>Finishing...</span>
+                      <span>Getting Number...</span>
                     </div>
                   ) : (
                     <div className="flex items-center justify-center gap-2">
-                      <CircleCheck className="h-4 w-4" />
-                      <span>Complete Order</span>
+                      <span>Get Virtual Number</span>
+                      {selectedOperatorDetails && (
+                        <Badge variant="secondary" className="ml-2 text-xs">
+                          ₹{convertToINR(selectedOperatorDetails.cost)}
+                        </Badge>
+                      )}
                     </div>
                   )}
                 </Button>
               )}
-            </div>
+
+              {/* Error Display for selection step */}
+              {error && (
+                <Card className="bg-destructive/10 border-destructive/20">
+                  <CardContent className="flex items-center gap-2 p-3">
+                    <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
+                    <p className="text-sm break-words text-destructive">{error}</p>
+                  </CardContent>
+                </Card>
+              )}
+            </>
+          ) : (
+            /* If a number is received, show the ReceivedNumberView component */
+            <ReceivedNumberView 
+              number={number}
+              orderId={orderId}
+              orderStatus={orderStatus}
+              orderCreatedAt={orderCreatedAt}
+              smsCode={smsCode}
+              fullSms={fullSms}
+              isLoading={isLoading}
+              isOrderCancelled={isOrderCancelled}
+              isOrderFinished={isOrderFinished}
+              isNumberCopied={isNumberCopied}
+              isOrderIdCopied={isOrderIdCopied}
+              isSmsCodeCopied={isSmsCodeCopied}
+              isOtpCopied={isOtpCopied}
+              isRetrying={isRetrying}
+              isCheckingSms={isCheckingSms}
+              retryAttempts={retryAttempts}
+              maxRetryAttempts={maxRetryAttempts}
+              timeLeft={timeLeft}
+              otpTimeout={otpTimeout}
+              isTimeoutActive={isTimeoutActive}
+              handleBanNumber={handleBanNumber}
+              handleCancelOrder={handleCancelOrder}
+              handleFinishOrder={handleFinishOrder}
+              handleCopyToClipboard={handleCopyToClipboard}
+              setIsNumberCopied={setIsNumberCopied}
+              setIsOrderIdCopied={setIsOrderIdCopied}
+              setIsSmsCodeCopied={setIsSmsCodeCopied}
+              setIsOtpCopied={setIsOtpCopied}
+              refreshComponent={refreshComponent}
+              getStatusColor={getStatusColor}
+              error={error}
+              NumberDisplaySkeleton={NumberDisplaySkeleton}
+              resetUIState={resetUIState}
+            />
           )}
         </div>
       </CardContent>
