@@ -146,6 +146,7 @@ const GetVirtualNumber = () => {
   const [isOrderIdCopied, setIsOrderIdCopied] = useState(false)
   const [isSmsCodeCopied, setIsSmsCodeCopied] = useState(false)
   const [usingFallbackRate, setUsingFallbackRate] = useState(false);
+  const [activeProductName, setActiveProductName] = useState<string | undefined>(undefined);
   
   // Add this query for real-time wallet balance
   const { 
@@ -388,6 +389,7 @@ const GetVirtualNumber = () => {
     
     // Clear persisted data
     clearOtpData()
+    setActiveProductName(undefined);
   }
 
   useEffect(() => {
@@ -541,6 +543,12 @@ const GetVirtualNumber = () => {
           setOrderId(Number(session.order_id))
           setOrderStatus(session.status as OrderStatus)
           setOrderCreatedAt(new Date(session.created_at))
+          
+          // Store the service name for display
+          if (session.service) {
+            // Format the service name from database (replace underscores with spaces)
+            setActiveProductName(session.service.replace(/_/g, " "))
+          }
 
           // If session is PENDING, restart SMS checking
           if (session.status === "PENDING") {
@@ -2321,6 +2329,7 @@ const GetVirtualNumber = () => {
               error={error}
               NumberDisplaySkeleton={NumberDisplaySkeleton}
               resetUIState={resetUIState}
+              productName={activeProductName || (selectedProduct ? products.find((p) => p.id === selectedProduct)?.name.replace(/_/g, " ") : undefined)}
             />
           )}
         </div>

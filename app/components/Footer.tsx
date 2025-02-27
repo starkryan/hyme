@@ -43,7 +43,7 @@ function Footerdemo() {
                 Home
               </a>
               <a href="/recharge" className="block transition-colors hover:text-primary">
-                Recharge Wallet
+                Payment
               </a>
               <a href="/transactions" className="block transition-colors hover:text-primary">
                 Transactions
