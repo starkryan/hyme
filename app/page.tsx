@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useUser } from '@clerk/nextjs';
 import Hero from './components/Hero';
 import { HeroLoadingSkeleton } from './components/ui/loading-skeleton';
+import PageMetadata from './components/PageMetadata';
 
 function HomePage() {
   const { isSignedIn, isLoaded } = useUser();
@@ -29,6 +30,7 @@ function HomePage() {
 
   return (
     <div>
+      <PageMetadata />
       <Hero />
     </div>
   );

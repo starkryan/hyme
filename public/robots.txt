@@ -1,0 +1,19 @@
+# Allow all crawlers
+User-agent: *
+Allow: /
+
+# Sitemap location
+Sitemap: https://otpmaya.com/sitemap.xml
+
+# Disallow private/admin pages
+Disallow: /admin/
+Disallow: /api/
+Disallow: /_next/
+Disallow: /dashboard/settings/
+Disallow: /signin/
+Disallow: /signup/
+
+# Allow useful directories explicitly
+Allow: /dashboard/
+Allow: /recharge/
+Allow: /transactions/ 

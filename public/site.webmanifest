@@ -1,0 +1,65 @@
+{
+  "name": "OTPMaya - Virtual Number Service",
+  "short_name": "OTPMaya",
+  "description": "Get instant, secure, and reliable virtual phone numbers for SMS verification.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon.png",
+      "sizes": "256x256",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon.png",
+      "sizes": "384x384",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/vercel.svg",
+      "sizes": "1280x720",
+      "type": "image/svg+xml",
+      "platform": "wide",
+      "label": "OTPMaya Dashboard"
+    },
+    {
+      "src": "/vercel.svg",
+      "sizes": "1280x720",
+      "type": "image/svg+xml",
+      "platform": "wide",
+      "label": "Virtual Number Purchase"
+    }
+  ],
+  "categories": ["utilities", "productivity", "security"],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "description": "View your OTPMaya dashboard",
+      "url": "/dashboard",
+      "icons": [{ "src": "/icon.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Purchase Number",
+      "short_name": "Buy Number",
+      "description": "Purchase a new virtual number",
+      "url": "/recharge",
+      "icons": [{ "src": "/icon.png", "sizes": "192x192" }]
+    }
+  ]
+} 
