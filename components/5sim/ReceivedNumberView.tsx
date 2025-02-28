@@ -1,12 +1,12 @@
 "use client"
 
 import React, { JSX, useState, useEffect } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { Copy, Check, AlertTriangle, XCircle, CircleCheck, Ban, PlusCircle } from "lucide-react"
+import { Copy, Check, AlertTriangle, XCircle, CircleCheck, Ban, PlusCircle, Clock, Tag, Hash, Phone } from "lucide-react"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -17,6 +17,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { Separator } from "@/components/ui/separator"
 
 // Define OrderStatus type
 export type OrderStatus = "PENDING" | "RECEIVED" | "CANCELED" | "TIMEOUT" | "FINISHED" | "BANNED"
@@ -124,7 +125,6 @@ export function ReceivedNumberView({
       pollingInterval = setInterval(() => {
         // Call the refresh function to check for new SMS
         refreshComponent();
-        console.log("Polling for SMS/OTP...");
       }, 1000); // 1 second delay
     }
     
@@ -135,14 +135,6 @@ export function ReceivedNumberView({
       }
     };
   }, [orderStatus, smsCode, isOrderCancelled, isOrderFinished, isOrderBanned, refreshComponent]);
-
-  // Also update isOrderCancelled state when ban happens
-  useEffect(() => {
-    if (isOrderBanned) {
-      // Once order is banned, it's effectively cancelled in the system
-      // This prevents trying to cancel an already banned (non-existent) order
-    }
-  }, [isOrderBanned]);
 
   // Determine if the warning should be shown (active order that's not finished or cancelled)
   const showResetWarning = orderStatus === "PENDING" || orderStatus === "RECEIVED";
@@ -178,7 +170,6 @@ export function ReceivedNumberView({
       setIsBanning(true);
       await handleBanNumber();
       setIsOrderBanned(true);
-      // After banning, the order is in a final state and cannot be cancelled
     } catch (error) {
       console.error("Error banning number:", error);
     } finally {
@@ -224,101 +215,195 @@ export function ReceivedNumberView({
     }
   };
 
-  // Check if the order status says RECEIVED but no SMS content yet
+  // Format time display function
+  const formatTime = (date: Date): string => {
+    return date.toLocaleString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true
+    });
+  };
+
+  // Format date display function
+  const formatDate = (date: Date): string => {
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+  };
+
+  // Get status display information
+  const getStatusInfo = (status: OrderStatus | null) => {
+    if (!status) return { icon: null, color: "default", text: "Unknown" };
+    
+    switch(status) {
+      case "PENDING":
+        return { 
+          icon: <Clock className="h-4 w-4 text-yellow-500" />, 
+          color: "warning", 
+          text: "Waiting for SMS" 
+        };
+      case "RECEIVED":
+        return { 
+          icon: <CircleCheck className="h-4 w-4 text-green-500" />, 
+          color: "success", 
+          text: "SMS Received" 
+        };
+      case "CANCELED":
+        return { 
+          icon: <XCircle className="h-4 w-4 text-red-500" />, 
+          color: "destructive", 
+          text: "Cancelled" 
+        };
+      case "TIMEOUT":
+        return { 
+          icon: <AlertTriangle className="h-4 w-4 text-orange-500" />, 
+          color: "destructive", 
+          text: "Timed Out" 
+        };
+      case "FINISHED":
+        return { 
+          icon: <CircleCheck className="h-4 w-4 text-green-500" />, 
+          color: "success", 
+          text: "Completed" 
+        };
+      case "BANNED":
+        return { 
+          icon: <Ban className="h-4 w-4 text-red-500" />, 
+          color: "destructive", 
+          text: "Banned" 
+        };
+      default:
+        return { icon: null, color: "default", text: status };
+    }
+  };
+
+  // Get status display data
+  const statusInfo = getStatusInfo(isOrderBanned ? "BANNED" : orderStatus);
 
   return (
-    <div className="space-y-4 animate-in fade-in-50 slide-in-from-bottom-5 duration-500">
-      {/* Display Number Information */}
+    <div className="space-y-6 animate-in fade-in-50 slide-in-from-bottom-5 duration-500">
+      {/* Main number information card with improved design */}
       {isLoading ? (
         <NumberDisplaySkeleton />
       ) : (
         number && (
-          <Card className="shadow-sm">
-            <CardHeader className="pb-3">
-              <div className="flex flex-col space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <Card className="overflow-hidden border border-border/50 shadow-sm">
+            {/* Header with status badge and timestamps */}
+            <CardHeader className="pb-2 bg-muted/10">
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <CardTitle className="text-lg">Virtual Number</CardTitle>
-                    <Badge variant={getStatusColor(isOrderBanned ? "BANNED" : orderStatus)} className="text-xs font-semibold px-2 py-1">
-                      {isOrderBanned ? "BANNED" : orderStatus}
+                    <CardTitle className="text-lg font-semibold">Virtual Number</CardTitle>
+                    <Badge 
+                      variant={getStatusColor(isOrderBanned ? "BANNED" : orderStatus)} 
+                      className="text-xs font-medium px-2 py-1 ml-2 inline-flex items-center gap-1.5"
+                    >
+                      {statusInfo.icon}
+                      <span>{statusInfo.text}</span>
                     </Badge>
                   </div>
                   
+                  {productName && (
+                    <Badge variant="secondary" className="text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                      {productName}
+                    </Badge>
+                  )}
+                </div>
+
+                {/* Timestamps and Order ID section */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-1">
+                  {orderId && (
+                    <div className="flex items-center gap-2 text-xs bg-muted/30 rounded-md px-3 py-2">
+                      <Hash className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="text-muted-foreground">Order ID:</span>
+                      <span className="font-mono font-medium">{orderId}</span>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleCopyToClipboard(String(orderId), setIsOrderIdCopied)}
+                        className="h-5 w-5 ml-auto"
+                      >
+                        {isOrderIdCopied ? (
+                          <Check className="h-3 w-3 text-green-500" />
+                        ) : (
+                          <Copy className="h-3 w-3" />
+                        )}
+                      </Button>
+                    </div>
+                  )}
+
                   {orderCreatedAt && (
-                    <div className="text-xs bg-muted rounded-md px-3 py-1.5 flex items-center gap-2">
-                      <span className="font-medium">Created</span>
-                      <span className="font-mono font-medium">{new Date(orderCreatedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})}</span>
+                    <div className="flex items-center gap-2 text-xs bg-muted/30 rounded-md px-3 py-2">
+                      <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="text-muted-foreground">Created:</span>
+                      <span className="font-medium">{formatDate(orderCreatedAt)}</span>
+                      <span className="font-mono font-medium ml-auto">{formatTime(orderCreatedAt)}</span>
                     </div>
                   )}
                 </div>
-                
-                {orderId && (
-                  <div className="flex items-center justify-between border border-muted rounded-md px-3 py-2 bg-muted/30">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-medium text-muted-foreground">Order ID:</span>
-                      <span className="font-mono text-xs font-semibold">{orderId}</span>
+              </div>
+            </CardHeader>
+
+            {/* Main content with phone number */}
+            <CardContent className="pt-5 pb-4">
+              <div className="flex flex-col p-4 rounded-lg border bg-muted/5 hover:bg-muted/10 transition-colors">
+                {/* Phone number section with improved design */}
+                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center text-sm text-muted-foreground mb-1">
+                      <Phone className="h-3.5 w-3.5 mr-1.5" />
+                      <span>Phone Number:</span>
                     </div>
+                    
+                    {/* Full phone number with country code */}
+                    <div className="flex items-center">
+                      <span className="font-mono text-xl font-semibold">{number.phone}</span>
+                    </div>
+                    
+                    {/* Number without country code */}
+                    <div className="flex items-center mt-1">
+                      <span className="text-sm text-muted-foreground">Without country code:</span>
+                    </div>
+                    <div className="flex items-center">
+                      <span className="font-mono text-lg font-medium">{number.phone.replace(/^\+\d+/, '')}</span>
+                    </div>
+                  </div>
+                  
+                  {/* Copy buttons with improved design */}
+                  <div className="flex flex-col gap-2 self-end md:self-center mt-2 md:mt-0">
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleCopyToClipboard(String(orderId), setIsOrderIdCopied)}
-                            className="h-6 w-6"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleCopyToClipboard(number.phone, setIsNumberCopied)}
+                            className="h-8 px-3 w-[120px]"
                           >
-                            {isOrderIdCopied ? (
-                              <Check className="h-3 w-3 text-green-500" />
-                            ) : (
-                              <Copy className="h-3 w-3" />
-                            )}
+                            <div className="flex items-center gap-2">
+                              {isNumberCopied ? (
+                                <>
+                                  <Check className="h-3.5 w-3.5 text-green-500" />
+                                  <span className="text-xs">Copied</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="h-3.5 w-3.5" />
+                                  <span className="text-xs">Copy full</span>
+                                </>
+                              )}
+                            </div>
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent side="bottom">
-                          <p>Copy Order ID</p>
+                        <TooltipContent side="left">
+                          <p>Copy complete number with country code</p>
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
-                  </div>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4 p-4">
-              <div className="flex flex-col p-3 md:p-4 rounded-lg border bg-muted/10">
-                {/* Product information - always displayed at the top with fallback */}
-                <div className="flex flex-col gap-2 mb-3 pb-2 border-b border-border/30">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-muted-foreground">OTP Service:</span>
-                    <Badge variant="secondary" className="text-xs font-semibold px-2.5 py-0.5 bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                      {productName || "SMS Verification"}
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {productName 
-                      ? `This number is activated for receiving OTP from ${productName}.` 
-                      : "This number is activated for SMS verification services."}
-                  </p>
-                </div>
-                
-                {/* Phone number with country code */}
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-                  <div className="flex flex-col gap-1.5">
-                    <div className="flex items-center gap-2">
-                      
-                      <span className="font-mono text-base font-medium break-all">{number.phone}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      
-                      <span className="font-mono text-base font-medium break-all">
-                        {number.phone.replace(/^\+\d+/, '')}
-                      </span>
-                    </div>
-                  </div>
-                  
-                  {/* Copy buttons */}
-                  <div className="flex items-center gap-2 self-end md:self-center">
-                    
-                    
+
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -326,19 +411,24 @@ export function ReceivedNumberView({
                             variant="outline"
                             size="sm"
                             onClick={() => handleCopyToClipboard(number.phone.replace(/^\+\d+/, ''), setIsNumberOnlyCopied)}
-                            className="h-8 px-2.5"
+                            className="h-8 px-3 w-[120px]"
                           >
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-2">
                               {isNumberOnlyCopied ? (
-                                <Check className="h-3.5 w-3.5 text-green-500" />
+                                <>
+                                  <Check className="h-3.5 w-3.5 text-green-500" />
+                                  <span className="text-xs">Copied</span>
+                                </>
                               ) : (
-                                <Copy className="h-3.5 w-3.5" />
+                                <>
+                                  <Copy className="h-3.5 w-3.5" />
+                                  <span className="text-xs">Copy number</span>
+                                </>
                               )}
-                              <span className="text-xs">Copy</span>
                             </div>
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent side="bottom">
+                        <TooltipContent side="left">
                           <p>Copy number without country code</p>
                         </TooltipContent>
                       </Tooltip>
@@ -351,84 +441,100 @@ export function ReceivedNumberView({
         )
       )}
 
-      {/* Waiting for OTP */}
+      {/* Waiting for OTP with improved animation */}
       {(isCheckingSms || isRetrying || (!smsCode && (orderStatus === "PENDING" || orderStatus === "RECEIVED"))) && !smsCode && (
-        <Card className="shadow-sm">
-          <CardContent className="space-y-3 p-4">
-            <div className="flex items-center justify-center gap-2">
-              <Spinner className="h-4 w-4" />
-              <span className="text-sm font-medium">
-                {isRetrying ? `Checking for SMS (${retryAttempts + 1}/${maxRetryAttempts})` : "Waiting for OTP..."}
-              </span>
+        <Card className="border-yellow-200 dark:border-yellow-800 shadow-sm">
+          <CardContent className="space-y-4 p-5">
+            <div className="flex flex-col items-center justify-center gap-3">
+              <div className="relative">
+                <div className="absolute inset-0 rounded-full bg-yellow-100 dark:bg-yellow-900/30 animate-ping opacity-75" style={{ animationDuration: '2s' }}></div>
+                <div className="relative rounded-full bg-yellow-200 dark:bg-yellow-800 p-3">
+                  <Clock className="h-6 w-6 text-yellow-600 dark:text-yellow-500" />
+                </div>
+              </div>
+              
+              <div className="text-center">
+                <h3 className="text-base font-medium mb-1">
+                  {isRetrying ? `Checking for SMS (${retryAttempts + 1}/${maxRetryAttempts})` : "Waiting for OTP..."}
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  The system is checking for new messages every second
+                </p>
+              </div>
+              
+              <div className="flex items-center justify-center space-x-2 pt-1">
+                <span className="w-2 h-2 bg-yellow-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                <span className="w-2 h-2 bg-yellow-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                <span className="w-2 h-2 bg-yellow-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+              </div>
             </div>
-            <p className="text-xs text-center text-muted-foreground animate-pulse">
-              Checking for new messages every second...
-            </p>
           </CardContent>
         </Card>
       )}
 
-      {/* Display SMS Code */}
+      {/* Display SMS Code with improved design */}
       {smsCode && (
-        <Card className="shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base flex items-center gap-2">
-              <CircleCheck className="h-4 w-4 text-green-500" />
-              OTP Received
-            </CardTitle>
+        <Card className="border-green-200 dark:border-green-800 shadow-sm overflow-hidden">
+          <CardHeader className="pb-3 bg-green-50 dark:bg-green-950/30">
+            <div className="flex items-center gap-2">
+              <CircleCheck className="h-5 w-5 text-green-600 dark:text-green-500" />
+              <CardTitle className="text-base font-semibold text-green-700 dark:text-green-500">OTP Received</CardTitle>
+            </div>
           </CardHeader>
-          <CardContent className="space-y-3 p-4">
-            <div className="flex flex-col gap-3">
-              <div className="flex items-center justify-between">
-                <Badge variant="secondary" className="text-xs font-medium">
-                  OTP Code
-                </Badge>
+          
+          <CardContent className="space-y-4 pt-5 pb-4">
+            <div className="flex flex-col gap-4">
+              {/* OTP display with animation */}
+              <div className="flex flex-col items-center">
+                <div className="flex justify-center items-center gap-2 md:gap-3 py-4">
+                  {smsCode.split('').map((digit, index) => (
+                    <div 
+                      key={index} 
+                      className="flex items-center justify-center w-10 h-12 md:w-12 md:h-14 rounded-md border-2 border-green-500/60 bg-green-50/60 dark:bg-green-950/20 shadow-sm animate-in fade-in-50 duration-500 slide-in-from-bottom-3"
+                      style={{ 
+                        animationDelay: `${index * 100}ms`,
+                      }}
+                    >
+                      <span className="text-xl md:text-2xl font-bold text-green-700 dark:text-green-400 animate-in zoom-in-95 duration-500"
+                        style={{ 
+                          animationDelay: `${200 + index * 100}ms`,
+                        }}
+                      >{digit}</span>
+                    </div>
+                  ))}
+                </div>
+                
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
                   onClick={() => handleCopyToClipboard(smsCode, setIsSmsCodeCopied)}
-                  className="h-8"
+                  className="h-8 mt-2"
                 >
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-2">
                     {isSmsCodeCopied ? (
                       <>
                         <Check className="h-4 w-4 text-green-500" />
-                        <span className="text-xs text-green-500">Copied</span>
+                        <span className="text-xs text-green-500">OTP Copied</span>
                       </>
                     ) : (
                       <>
                         <Copy className="h-4 w-4" />
-                        <span className="text-xs">Copy</span>
+                        <span className="text-xs">Copy OTP</span>
                       </>
                     )}
                   </div>
                 </Button>
               </div>
               
-              <div className="flex justify-center items-center gap-2 md:gap-3">
-                {smsCode.split('').map((digit, index) => (
-                  <div 
-                    key={index} 
-                    className="flex items-center justify-center w-10 h-12 md:w-12 md:h-14 rounded-md border-2 border-green-500/60 bg-green-50/30 dark:bg-green-950/20 shadow-sm animate-in fade-in-50 duration-500 slide-in-from-bottom-3"
-                    style={{ 
-                      animationDelay: `${index * 100}ms`,
-                    }}
-                  >
-                    <span className="text-xl md:text-2xl font-bold text-green-700 dark:text-green-400 animate-in zoom-in-95 duration-500"
-                      style={{ 
-                        animationDelay: `${200 + index * 100}ms`,
-                      }}
-                    >{digit}</span>
-                  </div>
-                ))}
-              </div>
-              
+              {/* Full message section with improved display */}
               {fullSms && (
-                <div className="mt-2 md:mt-4">
+                <div className="mt-2">
                   <div className="flex items-center justify-between mb-2">
-                    <Badge variant="outline" className="text-xs">
-                      Full Message
-                    </Badge>
+                    <div className="flex items-center gap-1.5">
+                      <Tag className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="text-sm font-medium text-muted-foreground">Full Message</span>
+                    </div>
+                    
                     <Button
                       variant="ghost"
                       size="sm"
@@ -450,7 +556,8 @@ export function ReceivedNumberView({
                       </div>
                     </Button>
                   </div>
-                  <div className="p-3 rounded-md border border-green-500/20 bg-muted/20 text-sm md:text-base overflow-auto max-h-28">
+                  
+                  <div className="p-3 rounded-md border border-green-200 dark:border-green-800 bg-green-50/30 dark:bg-green-950/10 text-sm overflow-auto max-h-32">
                     {fullSms}
                   </div>
                 </div>
@@ -463,8 +570,10 @@ export function ReceivedNumberView({
       {/* SMS Received Notice */}
       {hasSmsBeenReceived ? (
         <Card className="bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200 dark:border-yellow-800">
-          <CardContent className="flex items-center gap-2 p-3">
-            <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-500 shrink-0" />
+          <CardContent className="flex items-center gap-3 p-3">
+            <div className="rounded-full bg-yellow-100 dark:bg-yellow-900/50 p-1.5 flex-shrink-0">
+              <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-500" />
+            </div>
             <p className="text-sm text-yellow-700 dark:text-yellow-400">
               SMS has been received. You cannot cancel this number anymore as the service has been delivered.
             </p>
@@ -475,16 +584,17 @@ export function ReceivedNumberView({
       {/* Error Display */}
       {error && (
         <Card className="bg-destructive/10 border-destructive/20">
-          <CardContent className="flex items-center gap-2 p-3">
-            <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
+          <CardContent className="flex items-center gap-3 p-3">
+            <div className="rounded-full bg-destructive/20 p-1.5 flex-shrink-0">
+              <AlertTriangle className="h-4 w-4 text-destructive" />
+            </div>
             <p className="text-sm break-words text-destructive">{error}</p>
           </CardContent>
         </Card>
       )}
 
-      {/* Action Buttons */}
-      <div className={`grid ${hasSmsBeenReceived ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2'} gap-3`}>
-        {/* Show Ban Number and Cancel Order buttons only when no SMS received */}
+      {/* Action Buttons with improved layout */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {!hasSmsBeenReceived ? (
           <>
             {/* Ban Number button */}
@@ -492,7 +602,7 @@ export function ReceivedNumberView({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
-                    variant={isOrderBanned ? "outline" : "outline"}
+                    variant={isOrderBanned ? "outline" : "destructive"}
                     onClick={handleBanWithState}
                     disabled={isActionDisabled('ban')}
                     className="w-full h-10 text-sm"
@@ -515,7 +625,7 @@ export function ReceivedNumberView({
                     )}
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom">
+                <TooltipContent side="top">
                   <p>{isOrderBanned ? "This number has been banned" : "Ban this number if you received spam"}</p>
                 </TooltipContent>
               </Tooltip>
@@ -554,7 +664,7 @@ export function ReceivedNumberView({
                     )}
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom">
+                <TooltipContent side="top">
                   <p>
                     {isOrderBanned 
                       ? "This order has been banned" 
@@ -567,62 +677,58 @@ export function ReceivedNumberView({
             </TooltipProvider>
           </>
         ) : (
-          /* Complete Order button - Only show when SMS received */
-          isOrderFinished ? (
-            <Button 
-              variant="outline" 
-              disabled 
-              className="w-full h-10 text-sm"
-            >
+          /* Complete Order button - Only show when SMS received, now full width */
+          <Button
+            variant={isOrderFinished ? "outline" : "default"}
+            onClick={isOrderFinished ? undefined : handleFinishOrder}
+            disabled={isActionDisabled('finish') || isOrderFinished}
+            className="w-full h-10 text-sm col-span-1 md:col-span-2"
+          >
+            {isLoading ? (
+              <div className="flex items-center justify-center gap-2">
+                <Spinner className="h-4 w-4" />
+                <span>Finishing...</span>
+              </div>
+            ) : isOrderFinished ? (
               <div className="flex items-center justify-center gap-2">
                 <CircleCheck className="h-4 w-4" />
                 <span>Order Completed</span>
               </div>
-            </Button>
-          ) : (
-            <Button
-              variant="default"
-              onClick={handleFinishOrder}
-              disabled={isActionDisabled('finish')}
-              className="w-full h-10 text-sm"
-            >
-              {isLoading ? (
-                <div className="flex items-center justify-center gap-2">
-                  <Spinner className="h-4 w-4" />
-                  <span>Finishing...</span>
-                </div>
-              ) : (
-                <div className="flex items-center justify-center gap-2">
-                  <CircleCheck className="h-4 w-4" />
-                  <span>Complete Order</span>
-                </div>
-              )}
-            </Button>
-          )
+            ) : (
+              <div className="flex items-center justify-center gap-2">
+                <CircleCheck className="h-4 w-4" />
+                <span>Complete Order</span>
+              </div>
+            )}
+          </Button>
         )}
       </div>
 
       {/* Get Another Number Button with Dialog */}
       {resetUIState && (
         <>
-          <Button
-            onClick={handleReset}
-            variant="secondary"
-            className="w-full mt-4"
-            disabled={isLoading || isResetting}
-          >
-            {isResetting ? (
-              <div className="flex items-center justify-center gap-2">
-                <Spinner className="h-4 w-4" />
-                <span>Getting New Number...</span>
-              </div>
-            ) : (
-              <div className="flex items-center justify-center gap-2">
-                <PlusCircle className="h-4 w-4" />
-                <span>Get Another Number</span>
-              </div>
-            )}
-          </Button>
+          <div className="pt-2">
+            <Separator className="my-2" />
+            
+            <Button
+              onClick={handleReset}
+              variant="secondary"
+              className="w-full mt-4"
+              disabled={isLoading || isResetting}
+            >
+              {isResetting ? (
+                <div className="flex items-center justify-center gap-2">
+                  <Spinner className="h-4 w-4" />
+                  <span>Getting New Number...</span>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center gap-2">
+                  <PlusCircle className="h-4 w-4" />
+                  <span>Get Another Number</span>
+                </div>
+              )}
+            </Button>
+          </div>
 
           {/* Alert Dialog for confirmation */}
           <AlertDialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>

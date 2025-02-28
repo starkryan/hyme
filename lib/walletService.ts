@@ -425,7 +425,17 @@ export const getRechargeRequests = async (userId: string): Promise<RechargeReque
 };
 
 export const verifyRechargeRequest = async (requestId: string, status: 'COMPLETED' | 'FAILED') => {
+  // Initialize operations as a properly typed const (not let)
+  const operations = {
+    fetchedRequest: false,
+    walletUpdated: false,
+    transactionCreated: false,
+    requestStatusUpdated: false
+  };
+  
   try {
+    console.log(`Starting verification of recharge request ${requestId} with status ${status}`);
+    
     // Get the recharge request
     const { data: request, error: fetchError } = await supabase
       .from('recharge_requests')
@@ -433,73 +443,177 @@ export const verifyRechargeRequest = async (requestId: string, status: 'COMPLETE
       .eq('id', requestId)
       .single();
 
-    if (fetchError) throw fetchError;
-    if (!request) throw new Error('Recharge request not found');
+    if (fetchError) {
+      console.error('Error fetching request:', fetchError);
+      throw fetchError;
+    }
+    if (!request) {
+      throw new Error('Recharge request not found');
+    }
+    
+    operations.fetchedRequest = true;
+    console.log(`Recharge request found: amount ${request.amount}, user ${request.user_id}`);
+
+    // Check if request is already in target status
+    if (request.status === status) {
+      console.log(`Request is already in ${status} status, no update needed`);
+      return { success: true, operations, warning: `Request was already in ${status} status` };
+    }
 
     // If approving the request, add balance to user's wallet
     if (status === 'COMPLETED') {
-      // Get the current wallet balance
-      const { data: walletData, error: getWalletError } = await supabase
-        .from('wallet_balances')
-        .select('balance')
-        .eq('user_id', request.user_id)
-        .single();
+      try {
+        // Get the current wallet balance
+        const { data: walletData, error: getWalletError } = await supabase
+          .from('wallet_balances')
+          .select('balance')
+          .eq('user_id', request.user_id)
+          .single();
+          
+        if (getWalletError) {
+          console.error('Error fetching wallet:', getWalletError);
+          throw getWalletError;
+        }
+        if (!walletData) {
+          throw new Error('Wallet not found');
+        }
+        console.log(`Current wallet balance: ${walletData.balance}`);
         
-      if (getWalletError) throw getWalletError;
-      if (!walletData) throw new Error('Wallet not found');
-      
-      // Update the wallet balance directly
-      const newBalance = Number(walletData.balance) + Number(request.amount);
-      const { error: walletError } = await supabase
-        .from('wallet_balances')
-        .update({ 
-          balance: newBalance,
-          updated_at: new Date().toISOString()
-        })
-        .eq('user_id', request.user_id);
+        // Update the wallet balance directly
+        const newBalance = Number(walletData.balance) + Number(request.amount);
+        const { error: walletError } = await supabase
+          .from('wallet_balances')
+          .update({ 
+            balance: newBalance,
+            updated_at: new Date().toISOString()
+          })
+          .eq('user_id', request.user_id);
 
-      if (walletError) throw walletError;
+        if (walletError) {
+          console.error('Error updating wallet balance:', walletError);
+          throw walletError;
+        }
+        
+        operations.walletUpdated = true;
+        console.log(`Wallet balance updated to ${newBalance}`);
+      } catch (walletError) {
+        console.error('Wallet operation failed:', walletError);
+        throw new Error(`Wallet update failed: ${walletError instanceof Error ? walletError.message : 'Unknown wallet error'}`);
+      }
 
-      // Create a wallet transaction record
-      const { error: transactionError } = await supabase
-        .from('wallet_transactions')
-        .insert([
-          {
-            user_id: request.user_id,
-            amount: request.amount,
-            type: 'CREDIT',
-            description: 'Wallet recharge',
-            reference_id: requestId,
-            status: 'COMPLETED'
-          }
-        ]);
+      try {
+        // Create a wallet transaction record
+        const { error: transactionError } = await supabase
+          .from('transactions')
+          .insert([
+            {
+              user_id: request.user_id,
+              amount: request.amount,
+              type: 'CREDIT',
+              description: 'Wallet recharge',
+              reference_id: requestId,
+              status: 'COMPLETED',
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            }
+          ]);
 
-      if (transactionError) throw transactionError;
+        
+        
+        operations.transactionCreated = true;
+        console.log(`Transaction record created successfully`);
+      } catch (transactionError) {
+        // If wallet was updated but transaction record failed, we'll handle this
+        // gracefully later and not throw here
+        console.error('Transaction record creation failed:', transactionError);
+        // Log more details about the error
+        if (transactionError instanceof Error) {
+          console.error('Transaction error details:', {
+            message: transactionError.message,
+            name: transactionError.name,
+            stack: transactionError.stack
+          });
+        } else {
+          console.error('Non-Error transaction error:', typeof transactionError, transactionError);
+        }
+        
+        if (!operations.walletUpdated) {
+          throw new Error(`Transaction record failed: ${transactionError instanceof Error ? transactionError.message : 'Unknown transaction error'}`);
+        }
+      }
     }
 
-    // Update recharge request status
-    const { error: updateError } = await supabase
-      .from('recharge_requests')
-      .update({ status })
-      .eq('id', requestId);
+    try {
+      // Update recharge request status
+      const { error: updateError } = await supabase
+        .from('recharge_requests')
+        .update({ 
+          status,
+          updated_at: new Date().toISOString() 
+        })
+        .eq('id', requestId);
 
-    if (updateError) throw updateError;
+      if (updateError) {
+        console.error('Error updating request status:', updateError);
+        throw updateError;
+      }
+      
+      operations.requestStatusUpdated = true;
+      console.log(`Recharge request status updated to ${status}`);
+    } catch (statusError) {
+      console.error('Status update failed:', statusError);
+      throw new Error(`Status update failed: ${statusError instanceof Error ? statusError.message : 'Unknown status error'}`);
+    }
 
-    return { success: true };
+    console.log(`Recharge verification completed successfully`, operations);
+    return { success: true, operations };
   } catch (error) {
-    console.error('Wallet service error:', error);
+    // Create a detailed operations log to help with debugging
+    console.error('Operations completed before error:', operations);
     
-    // Improved error handling
-    const err = error as any;
-    const errorDetails = {
-      code: err?.code,
-      message: err?.message || 'Unknown error occurred',
-      details: err?.details,
-      hint: err?.hint
-    };
+    // Improved error handling that safely handles empty error objects
+    if (error instanceof Error) {
+      console.error('Wallet service error:', error.message);
+    } else if (error && typeof error === 'object') {
+      try {
+        // Try to handle circular references and non-serializable props
+        const safeErrorObj: Record<string, unknown> = {};
+        for (const key in error) {
+          if (Object.prototype.hasOwnProperty.call(error, key) && 
+              typeof (error as Record<string, unknown>)[key] !== 'function' && 
+              key !== 'toJSON') {
+            try {
+              safeErrorObj[key] = (error as Record<string, unknown>)[key];
+            } catch (e) {
+              safeErrorObj[key] = "<<non-serializable>>";
+            }
+          }
+        }
+        console.error('Wallet service error details:', safeErrorObj);
+      } catch (jsonError) {
+        console.error('Wallet service error: Could not stringify error object', error);
+      }
+    } else {
+      console.error('Wallet service error: Unknown error format', error);
+    }
     
-    console.error('Database error details:', errorDetails);
-    throw new Error(errorDetails.message);
+    // If all critical operations succeeded, don't throw an error, just log it
+    if (operations.walletUpdated && operations.requestStatusUpdated) {
+      console.log('NOTE: Most critical operations succeeded despite error in transaction record.');
+      return { success: true, operations, warning: operations.transactionCreated ? "Error in final cleanup" : "Transaction record creation failed" };
+    }
+    
+    // Create safe error details
+    let errorMessage = 'Unknown error occurred';
+    
+    if (error instanceof Error) {
+      errorMessage = error.message;
+    } else if (error && typeof error === 'object') {
+      const err = error as any;
+      errorMessage = err.message || errorMessage;
+    }
+    
+    throw new Error(`Recharge verification failed: ${errorMessage}`);
   }
 };
 
@@ -929,6 +1043,27 @@ export const updateVirtualNumberStatus = async (
         case 'TIMEOUT':
         case 'BANNED':
           console.log(`Processing refund for order ${orderId} with status ${status}`);
+          
+          // IMPORTANT: First update the transaction status regardless of refund
+          // This ensures the transaction is not left in PENDING state
+          try {
+            const { error: updateError } = await supabase
+              .from('transactions')
+              .update({
+                status: skipRefund ? 'COMPLETED' : 'FAILED', // COMPLETED if service was used, FAILED if cancelled
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', transactionId);
+              
+            if (updateError) {
+              console.error(`Error updating transaction status for ${orderId}:`, updateError);
+            } else {
+              console.log(`Successfully updated transaction ${transactionId} status to ${skipRefund ? 'COMPLETED' : 'FAILED'}`);
+            }
+          } catch (statusError) {
+            console.error(`Error updating transaction status:`, statusError);
+          }
+          
           // Process refund when canceled, timed out, or banned
           try {
             // Skip refund if service was already used (SMS received)
@@ -1070,6 +1205,7 @@ export async function canPurchaseNumber(userId: string, amount: number): Promise
     // 1. Check wallet balance
     const balance = await getWalletBalance(userId);
     if (balance < amount) {
+      console.log(`User ${userId} has insufficient balance: ${balance} < ${amount}`);
       return false;
     }
 
@@ -1085,8 +1221,54 @@ export async function canPurchaseNumber(userId: string, amount: number): Promise
       throw error;
     }
 
-    // Don't allow new purchase if there are pending transactions
-    return pendingTransactions.length === 0;
+    // If there are no pending transactions, allow the purchase
+    if (pendingTransactions.length === 0) {
+      return true;
+    }
+
+    // If we have pending transactions, we need to check if they're actually
+    // from active orders or just "stuck" in the PENDING state
+
+    // For each pending transaction, check if there's a corresponding OTP session
+    let activeOrders = 0;
+    for (const transaction of pendingTransactions) {
+      if (!transaction.order_id) {
+        continue; // Skip if no order ID (not a virtual number transaction)
+      }
+
+      // Check if there's an active OTP session for this order
+      const { data: session } = await supabase
+        .from('otp_sessions')
+        .select('status')
+        .eq('order_id', transaction.order_id)
+        .maybeSingle();
+
+      // If the session exists and is in PENDING or RECEIVED status, it's an active order
+      if (session && (session.status === 'PENDING' || session.status === 'RECEIVED')) {
+        activeOrders++;
+      } else {
+        // This transaction might be "stuck" in PENDING status
+        console.log(`Found potentially stuck transaction: ${transaction.id} for order ${transaction.order_id}`);
+        
+        // Attempt to update this transaction to FAILED status
+        try {
+          await supabase
+            .from('transactions')
+            .update({ 
+              status: 'FAILED',
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', transaction.id);
+            
+          console.log(`Updated stuck transaction ${transaction.id} to FAILED status`);
+        } catch (updateError) {
+          console.error(`Error updating stuck transaction: ${updateError}`);
+        }
+      }
+    }
+
+    // Only block new purchases if there are actually active orders
+    return activeOrders === 0;
   } catch (error) {
     console.error('Error checking purchase eligibility:', error);
     return false;

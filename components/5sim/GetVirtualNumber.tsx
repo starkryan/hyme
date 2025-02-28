@@ -45,6 +45,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useQuery } from '@tanstack/react-query'
 import { ReceivedNumberView } from "./ReceivedNumberView"
 import axios from 'axios'
+import { supabase } from "@/lib/supabase"
 
 // Replace the image-based CountryFlag component with an emoji-based one
 const CountryFlag = ({ iso }: { iso: string }) => {
@@ -370,6 +371,70 @@ const GetVirtualNumber = () => {
     
     // Clear persisted OTP data
     clearOtpData();
+  }
+
+  // Add this new function after resetUIState
+  const cleanupStuckTransactions = async () => {
+    if (!user) return;
+    
+    try {
+      console.log("Checking for stuck transactions...");
+      
+      // Get all PENDING transactions for this user
+      const { data: pendingTransactions, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('status', 'PENDING')
+        .eq('type', 'DEBIT');
+        
+      if (error) {
+        console.error("Error fetching pending transactions:", error);
+        return;
+      }
+      
+      if (!pendingTransactions || pendingTransactions.length === 0) {
+        console.log("No pending transactions found.");
+        return;
+      }
+      
+      console.log(`Found ${pendingTransactions.length} pending transactions to check.`);
+      
+      // For each pending transaction, check if there's a valid OTP session
+      for (const transaction of pendingTransactions) {
+        if (!transaction.order_id) continue;
+        
+        // Check if there's an active OTP session
+        const { data: session } = await supabase
+          .from('otp_sessions')
+          .select('status')
+          .eq('order_id', transaction.order_id)
+          .maybeSingle();
+          
+        // If no session or session is in CANCELED/TIMEOUT/BANNED/FINISHED state, update transaction
+        if (!session || 
+            (session.status !== 'PENDING' && session.status !== 'RECEIVED')) {
+          console.log(`Cleaning up stuck transaction ${transaction.id} for order ${transaction.order_id}`);
+          
+          // Update transaction status
+          const { error: updateError } = await supabase
+            .from('transactions')
+            .update({ 
+              status: 'FAILED',
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', transaction.id);
+            
+          if (updateError) {
+            console.error(`Error updating stuck transaction ${transaction.id}:`, updateError);
+          } else {
+            console.log(`Successfully updated stuck transaction ${transaction.id} to FAILED status`);
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error cleaning up stuck transactions:", error);
+    }
   }
 
   useEffect(() => {
@@ -1948,6 +2013,30 @@ const GetVirtualNumber = () => {
       // ... existing code ...
     }
   };
+
+  // Add a call to this function in the useEffect where you load the component data
+  useEffect(() => {
+    if (user) {
+      setIsLoading(true);
+      
+      // Use the correctly scoped functions
+      const loadInitialData = async () => {
+        try {
+          // Call cleanup separately since it's a new function
+          await cleanupStuckTransactions();
+          
+          // Call force balance update to refresh the wallet amount
+          await forceBalanceUpdate();
+        } catch (error) {
+          console.error("Error during startup cleanup:", error);
+        } finally {
+          setIsLoading(false);
+        }
+      };
+      
+      loadInitialData();
+    }
+  }, [user]);
 
   return (
     <Card className="w-full ">

@@ -42,6 +42,7 @@
     --sidebar-accent-foreground: 240 5.9% 10%;
     --sidebar-border: 220 13% 91%;
     --sidebar-ring: 217.2 91.2% 59.8%;
+    --xs-breakpoint: 480px;
 
     /* --color-1: 0 100% 63%;
     --color-2: 270 100% 63%;
@@ -122,5 +123,41 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+/* Mobile optimizations for tables */
+@media (max-width: 640px) {
+  .table-container {
+    margin: 0 -1rem;
+    width: calc(100% + 2rem);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  .table-container table {
+    min-width: 100%;
+  }
+  
+  .table-container::-webkit-scrollbar {
+    height: 4px;
+  }
+  
+  .table-container::-webkit-scrollbar-track {
+    background: hsl(var(--background));
+  }
+  
+  .table-container::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 4px;
+  }
+}
+
+@layer utilities {
+  @variants responsive {
+    .text-xxs {
+      font-size: 0.65rem;
+      line-height: 1rem;
+    }
   }
 }
