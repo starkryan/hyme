@@ -1,17 +1,18 @@
 import { redirect } from 'next/navigation'
-import { checkRole } from '@/lib/roles'
+import { checkRoleClient } from '@/lib/roles-client'
 import { clerkClient } from '@clerk/nextjs/server'
-import { removeRole, setRole } from './_actions'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { RechargeRequests } from '@/components/admin/RechargeRequests'
 import { Badge } from "@/components/ui/badge"
 import { supabase } from '@/lib/supabase'
+import Link from 'next/link'
 
 export default async function AdminDashboard(params: {
   searchParams: Promise<{ search?: string }>
 }) {
-  if (!checkRole('admin')) {
+  if (!checkRoleClient('admin')) {
     redirect('/')
   }
 
@@ -52,55 +53,11 @@ export default async function AdminDashboard(params: {
                 <CardContent className="px-0 sm:px-6">
                   <RechargeRequests />
                 </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="users">
-              <Card className="border-0 shadow-none">
-                <CardHeader className="px-2 sm:px-6">
-                  <CardTitle>User Management</CardTitle>
-                  <CardDescription>Search and manage user roles</CardDescription>
-                </CardHeader>
-                <CardContent className="px-2 sm:px-6">
-                  <div className="space-y-4">
-                    {users.map((user) => (
-                      <div key={user.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 border rounded-lg space-y-3 sm:space-y-0 hover:bg-muted/50 transition-colors">
-                        <div className="space-y-1">
-                          <div className="font-medium">
-                            {user.firstName} {user.lastName}
-                          </div>
-                          <div className="text-sm text-muted-foreground">
-                            {user.emailAddresses[0]?.emailAddress}
-                          </div>
-                          <div className="text-sm text-muted-foreground">
-                            Role: <Badge variant="outline">{String(user.publicMetadata?.role || 'user')}</Badge>
-                          </div>
-                        </div>
-                        <div className="w-full sm:w-auto">
-                          {user.publicMetadata?.role === 'admin' ? (
-                            <form action={async (formData: FormData) => {
-                              await removeRole(formData);
-                            }}>
-                              <input type="hidden" name="userId" value={user.id} />
-                              <button className="w-full sm:w-auto bg-destructive text-destructive-foreground hover:bg-destructive/90 px-4 py-2 text-sm rounded-md transition-colors">
-                                Remove Admin
-                              </button>
-                            </form>
-                          ) : (
-                            <form action={async (formData: FormData) => {
-                              await setRole(formData);
-                            }}>
-                              <input type="hidden" name="userId" value={user.id} />
-                              <button className="w-full sm:w-auto bg-secondary text-secondary-foreground hover:bg-secondary/80 px-4 py-2 text-sm rounded-md transition-colors">
-                                Make Admin
-                              </button>
-                            </form>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
+                <CardFooter className="px-2 sm:px-6 pt-0">
+                  <Link href="/admin/bug-reports" className="text-primary hover:underline text-sm">
+                    Manage Bug Reports →
+                  </Link>
+                </CardFooter>
               </Card>
             </TabsContent>
 

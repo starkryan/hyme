@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Button } from "@/components/ui/button"
-import { Menu, Wallet, PhoneCall, Receipt, CreditCard, X, Moon, Sun } from "lucide-react"
+import { Menu, Wallet, PhoneCall, Receipt, CreditCard, X, Moon, Sun, BugOff, Bug, ChevronDown, ChevronRight } from "lucide-react"
 import { UserButton, useAuth, useUser } from "@clerk/nextjs"
 import Link from 'next/link'
 import { cn } from "@/lib/utils"
@@ -17,15 +17,42 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 
-const routes = [
+// Common routes for all users (minus bug reporting routes)
+const commonRoutes = [
   {
     label: 'Dashboard',
     icon: PhoneCall,
     href: '/dashboard',
     description: 'View your OTP services and active numbers',
   },
+]
+
+// Bug reporting routes - to be placed in submenu
+const bugReportRoutes = [
+  {
+    label: 'Report Bug',
+    icon: BugOff,
+    href: '/bug-report',
+    description: 'Report an issue with our service',
+  },
+  {
+    label: 'My Bug Reports',
+    icon: Bug,
+    href: '/my-bug-reports',
+    description: 'Track your submitted bug reports',
+  },
+]
+
+// Routes that should only be shown to non-admin users
+const regularUserRoutes = [
   {
     label: 'Transactions',
     icon: Receipt,
@@ -40,8 +67,28 @@ const routes = [
   },
 ]
 
+// Admin routes that only show for admin users
+const adminRoutes = [
+  {
+    label: 'Admin Panel',
+    icon: Bug,
+    href: '/admin',
+    description: 'Access admin dashboard',
+  },
+  {
+    label: 'Bug Management',
+    icon: BugOff,
+    href: '/admin/bug-reports',
+    description: 'Manage user bug reports',
+  },
+]
+
+
+
 export default function Navbar() {
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isBugMenuOpen, setIsBugMenuOpen] = useState(false);
 
   useEffect(() => {
     const savedMode = localStorage.getItem('darkMode');
@@ -59,10 +106,10 @@ export default function Navbar() {
       localStorage.setItem('darkMode', 'false');
     }
   }, [isDarkMode]);
-  const [isMenuOpen, setIsMenuOpen] = useState(false)
 
   const { isSignedIn } = useAuth()
   const { user } = useUser()
+  const isAdmin = user?.publicMetadata?.role === 'admin'
 
   const { data: walletBalance = 0 } = useQuery({
     queryKey: ['walletBalance', user?.id],
@@ -129,12 +176,14 @@ export default function Navbar() {
                 <div className="text-sm text-muted-foreground mt-1">Available Balance</div>
               </div>
               
-              <Link href="/recharge" onClick={() => setDialogOpen(false)}>
-                <Button className="w-full group" size="lg">
-                  Recharge Wallet
-                  <CreditCard className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
-                </Button>
-              </Link>
+              {!isAdmin && (
+                <Link href="/recharge" onClick={() => setDialogOpen(false)}>
+                  <Button className="w-full group" size="lg">
+                    Recharge Wallet
+                    <CreditCard className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
+                  </Button>
+                </Link>
+              )}
             </div>
           </DialogContent>
         </Dialog>
@@ -186,6 +235,45 @@ export default function Navbar() {
     </Button>
   );
 
+  // Bug Reports Dropdown for Desktop
+  const BugReportsDropdown = () => (
+    <DropdownMenu>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                className={cn(
+                  "flex items-center gap-2 text-base font-medium px-4 py-2.5 rounded-md",
+                  "hover:bg-accent hover:text-accent-foreground transition-all",
+                  "hover:scale-105"
+                )}
+              >
+                <BugOff className="h-5 w-5" />
+                Bug Reports
+                <ChevronDown className="h-4 w-4 ml-1" />
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Bug reporting options</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+      <DropdownMenuContent align="end" className="w-56">
+        {bugReportRoutes.map((route) => (
+          <DropdownMenuItem key={route.href} asChild>
+            <Link href={route.href} className="flex items-center gap-2 cursor-pointer">
+              <route.icon className="h-4 w-4" />
+              <span>{route.label}</span>
+            </Link>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
   return (
     <header className="sticky top-0 w-full z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b">
       {/* Mobile Navigation */}
@@ -235,12 +323,77 @@ export default function Navbar() {
               className="absolute w-full bg-background border-t shadow-lg z-50"
             >
               <nav className="flex flex-col p-4 gap-4">
-                {routes.map((route) => (
+                {commonRoutes.map((route) => (
                   <Link
                     key={route.href}
                     href={route.href}
                     onClick={() => setIsMenuOpen(false)}
                     className="flex items-center gap-4 p-4 rounded-lg hover:bg-accent transition-colors font-medium"
+                  >
+                    <route.icon className="w-6 h-6" />
+                    <span>{route.label}</span>
+                  </Link>
+                ))}
+                
+                {!isAdmin && (
+                  <div className="relative">
+                    <button
+                      className="flex items-center justify-between w-full gap-4 p-4 rounded-lg hover:bg-accent transition-colors font-medium"
+                      onClick={() => setIsBugMenuOpen(!isBugMenuOpen)}
+                    >
+                      <div className="flex items-center gap-4">
+                        <BugOff className="w-6 h-6" />
+                        <span>Bug Reports</span>
+                      </div>
+                      <ChevronRight className={`w-5 h-5 transition-transform ${isBugMenuOpen ? 'rotate-90' : ''}`} />
+                    </button>
+                    
+                    <AnimatePresence>
+                      {isBugMenuOpen && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.2 }}
+                          className="overflow-hidden"
+                        >
+                          <div className="pl-10 mt-1 space-y-2">
+                            {bugReportRoutes.map((route) => (
+                              <Link
+                                key={route.href}
+                                href={route.href}
+                                onClick={() => setIsMenuOpen(false)}
+                                className="flex items-center gap-4 p-3 rounded-lg hover:bg-accent/80 transition-colors"
+                              >
+                                <route.icon className="w-5 h-5" />
+                                <span>{route.label}</span>
+                              </Link>
+                            ))}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                )}
+                
+                {!isAdmin && regularUserRoutes.map((route) => (
+                  <Link
+                    key={route.href}
+                    href={route.href}
+                    onClick={() => setIsMenuOpen(false)}
+                    className="flex items-center gap-4 p-4 rounded-lg hover:bg-accent transition-colors font-medium"
+                  >
+                    <route.icon className="w-6 h-6" />
+                    <span>{route.label}</span>
+                  </Link>
+                ))}
+                
+                {isAdmin && adminRoutes.map((route) => (
+                  <Link
+                    key={route.href}
+                    href={route.href}
+                    onClick={() => setIsMenuOpen(false)}
+                    className="flex items-center gap-4 p-4 rounded-lg hover:bg-accent transition-colors font-medium bg-primary/10"
                   >
                     <route.icon className="w-6 h-6" />
                     <span>{route.label}</span>
@@ -275,7 +428,7 @@ export default function Navbar() {
               OTPMaya
             </Link>
             <div className="flex items-center gap-6">
-              {routes.map((route) => (
+              {commonRoutes.map((route) => (
                 <TooltipProvider key={route.href}>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -284,6 +437,54 @@ export default function Navbar() {
                         className={cn(
                           "flex items-center gap-2 text-base font-medium px-4 py-2.5 rounded-md",
                           "hover:bg-accent hover:text-accent-foreground transition-all",
+                          "hover:scale-105"
+                        )}
+                      >
+                        <route.icon className="h-5 w-5" />
+                        {route.label}
+                      </Link>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>{route.description}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              ))}
+              
+              {!isAdmin && <BugReportsDropdown />}
+              
+              {!isAdmin && regularUserRoutes.map((route) => (
+                <TooltipProvider key={route.href}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Link
+                        href={route.href}
+                        className={cn(
+                          "flex items-center gap-2 text-base font-medium px-4 py-2.5 rounded-md",
+                          "hover:bg-accent hover:text-accent-foreground transition-all",
+                          "hover:scale-105"
+                        )}
+                      >
+                        <route.icon className="h-5 w-5" />
+                        {route.label}
+                      </Link>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>{route.description}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              ))}
+              
+              {isAdmin && adminRoutes.map((route) => (
+                <TooltipProvider key={route.href}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Link
+                        href={route.href}
+                        className={cn(
+                          "flex items-center gap-2 text-base font-medium px-4 py-2.5 rounded-md",
+                          "bg-primary/10 hover:bg-primary/20 hover:text-accent-foreground transition-all",
                           "hover:scale-105"
                         )}
                       >

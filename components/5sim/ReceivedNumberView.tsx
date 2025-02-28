@@ -317,30 +317,7 @@ export function ReceivedNumberView({
                   
                   {/* Copy buttons */}
                   <div className="flex items-center gap-2 self-end md:self-center">
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleCopyToClipboard(number.phone, setIsNumberCopied)}
-                            className="h-8 px-2.5"
-                          >
-                            <div className="flex items-center gap-1.5">
-                              {isNumberCopied ? (
-                                <Check className="h-3.5 w-3.5 text-green-500" />
-                              ) : (
-                                <Copy className="h-3.5 w-3.5" />
-                              )}
-                              <span className="text-xs">Copy with code</span>
-                            </div>
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom">
-                          <p>Copy number with country code</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
+                    
                     
                     <TooltipProvider>
                       <Tooltip>
@@ -357,7 +334,7 @@ export function ReceivedNumberView({
                               ) : (
                                 <Copy className="h-3.5 w-3.5" />
                               )}
-                              <span className="text-xs">Copy without code</span>
+                              <span className="text-xs">Copy</span>
                             </div>
                           </Button>
                         </TooltipTrigger>

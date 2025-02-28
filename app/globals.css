@@ -115,3 +115,12 @@
     box-shadow: 0 0 0 0 rgba(22, 163, 74, 0);
   }
 }
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
