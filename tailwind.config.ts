@@ -124,23 +124,39 @@ export default {
   					opacity: '0'
   				}
   			},
-              'pulse-border': {
-                '0%': {
-                  'border-color': 'rgba(22, 163, 74, 0.2)',
-                  'background-color': 'rgba(22, 163, 74, 0.05)',
-                  'box-shadow': '0 0 0 0 rgba(22, 163, 74, 0.5)'
-                },
-                '20%': {
-                  'border-color': 'rgba(22, 163, 74, 1)',
-                  'background-color': 'rgba(22, 163, 74, 0.1)',
-                  'box-shadow': '0 0 0 10px rgba(22, 163, 74, 0)'
-                },
-                '100%': {
-                  'border-color': 'rgba(22, 163, 74, 0.5)',
-                  'background-color': 'rgba(22, 163, 74, 0.05)',
-                  'box-shadow': '0 0 0 0 rgba(22, 163, 74, 0)'
-                }
-              }
+  			'pulse-border': {
+  				'0%': {
+  					'border-color': 'rgba(22, 163, 74, 0.2)',
+  					'background-color': 'rgba(22, 163, 74, 0.05)',
+  					'box-shadow': '0 0 0 0 rgba(22, 163, 74, 0.5)'
+  				},
+  				'20%': {
+  					'border-color': 'rgba(22, 163, 74, 1)',
+  					'background-color': 'rgba(22, 163, 74, 0.1)',
+  					'box-shadow': '0 0 0 10px rgba(22, 163, 74, 0)'
+  				},
+  				'100%': {
+  					'border-color': 'rgba(22, 163, 74, 0.5)',
+  					'background-color': 'rgba(22, 163, 74, 0.05)',
+  					'box-shadow': '0 0 0 0 rgba(22, 163, 74, 0)'
+  				}
+  			},
+  			marquee: {
+  				from: {
+  					transform: 'translateX(0)'
+  				},
+  				to: {
+  					transform: 'translateX(calc(-100% - var(--gap)))'
+  				}
+  			},
+  			'marquee-vertical': {
+  				from: {
+  					transform: 'translateY(0)'
+  				},
+  				to: {
+  					transform: 'translateY(calc(-100% - var(--gap)))'
+  				}
+  			}
   		},
   		animation: {
   			'accordion-down': 'accordion-down 0.2s ease-out',
@@ -149,7 +165,9 @@ export default {
   			rainbow: 'rainbow var(--speed, 2s) infinite linear',
   			'star-movement-bottom': 'star-movement-bottom linear infinite alternate',
   			'star-movement-top': 'star-movement-top linear infinite alternate',
-              'pulse-border': 'pulse-border 2s ease-out infinite'
+  			'pulse-border': 'pulse-border 2s ease-out infinite',
+  			marquee: 'marquee var(--duration) infinite linear',
+  			'marquee-vertical': 'marquee-vertical var(--duration) linear infinite'
   		},
   		backgroundImage: {
   			'grid-pattern': 'url("/grid-pattern.svg")',

@@ -9,6 +9,8 @@ import { FeaturesSectionWithHoverEffects } from './Features'
 // import { InfiniteSliderBasic } from './InfinitSlider'
 // import { Footerdemo } from './Footer'
 import { HeroDemo } from './Herodemo'
+// import { Marquee } from '@/components/magicui/marquee'
+import Review from './Review'
 
 const LoadingSkeleton = () => {
   return (
@@ -45,6 +47,8 @@ function Hero() {
           <HeroDemo />
           {/* <InfiniteSliderBasic /> */}
           <FeaturesSectionWithHoverEffects />
+          <h1 className='text-center text-2xl font-bold'>Our Customer Reviews</h1>
+          <Review />
           
         </Suspense>
       </main>
