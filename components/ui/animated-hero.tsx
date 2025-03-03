@@ -167,6 +167,34 @@ function Hero() {
             </motion.p>
           </motion.div>
 
+           {/* CTA buttons */}
+           <motion.div 
+            className="flex flex-col sm:flex-row gap-3 mt-4 sm:mt-6 w-full max-w-md px-4 sticky bottom-4 sm:relative sm:bottom-0"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.8 }}
+          >
+            <Button 
+              size="default" 
+              className="gap-2 px-4 sm:px-6 shadow-sm text-sm sm:text-base w-full sm:w-auto bg-primary hover:bg-primary/90"
+              asChild
+            >
+              <Link href="/dashboard">
+                <Zap className="w-4 h-4" />
+                Get Virtual Number 
+                <MoveRight className="w-4 h-4 ml-1" />
+              </Link>
+            </Button>
+            <Button 
+              variant="outline"
+              size="default"
+              className="gap-2 px-4 sm:px-6 text-sm sm:text-base w-full sm:w-auto"
+            >
+              <PhoneCall className="w-4 h-4" />
+              View Pricing
+            </Button>
+          </motion.div>
+
           {/* Feature highlights */}
           <motion.div 
             className="flex flex-wrap justify-center gap-2 sm:gap-4 md:gap-6 max-w-3xl mx-auto mt-6 sm:mt-8 lg:mt-10"
@@ -194,14 +222,14 @@ function Hero() {
 
           {/* Verification illustration */}
           <motion.div
-            className="relative mt-6 sm:mt-8 lg:mt-10 mb-4 w-full max-w-lg px-4"
+            className="relative mt-4 sm:mt-6 lg:mt-8 mb-2 w-full max-w-lg px-4"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.7 }}
           >
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-6">
-              <div className="flex flex-col items-center mb-6 sm:mb-0">
-                <div className="w-32 h-48 sm:w-40 sm:h-60 rounded-xl border-4 border-border bg-card shadow-lg flex flex-col overflow-hidden">
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+              <div className="flex flex-col items-center mb-4 sm:mb-0">
+                <div className="w-28 h-44 sm:w-40 sm:h-60 rounded-xl border-4 border-border bg-card shadow-lg flex flex-col overflow-hidden">
                   <div className="h-4 sm:h-6 bg-muted flex justify-center items-center">
                     <div className="w-12 sm:w-16 h-1 rounded-full bg-border"></div>
                   </div>
@@ -246,33 +274,7 @@ function Hero() {
             </div>
           </motion.div>
 
-          {/* CTA buttons */}
-          <motion.div 
-            className="flex flex-col sm:flex-row gap-3 mt-6 w-full max-w-md px-4"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.8 }}
-          >
-            <Button 
-              size="default" 
-              className="gap-2 px-4 sm:px-6 shadow-sm text-sm sm:text-base w-full sm:w-auto"
-              asChild
-            >
-              <Link href="/dashboard">
-                <Zap className="w-4 h-4" />
-                Get Virtual Number 
-                <MoveRight className="w-4 h-4 ml-1" />
-              </Link>
-            </Button>
-            <Button 
-              variant="outline"
-              size="default"
-              className="gap-2 px-4 sm:px-6 text-sm sm:text-base w-full sm:w-auto"
-            >
-              <PhoneCall className="w-4 h-4" />
-              View Pricing
-            </Button>
-          </motion.div>
+         
         </div>
       </div>
     </div>
