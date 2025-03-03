@@ -843,7 +843,10 @@ export const handleVirtualNumberRefund = async (
     }
 
     // IMPORTANT: Check if there was an SMS received for this order
-    // If yes, we should not refund as the service was already delivered
+    // Enhanced check for SMS receipt status from multiple sources
+    let smsWasReceived = false;
+    
+    // Check in virtual_number_transactions table
     if (transaction.order_id) {
       const { data: vnTransactions, error: vnError } = await supabase
         .from('virtual_number_transactions')
@@ -854,26 +857,46 @@ export const handleVirtualNumberRefund = async (
       if (!vnError && vnTransactions && 
           (vnTransactions.status === 'RECEIVED' || vnTransactions.status === 'FINISHED')) {
         console.log(`Not refunding order ${transaction.order_id} as SMS was already received (status: ${vnTransactions.status})`);
-        return; // Exit early, no refund needed
+        smsWasReceived = true;
       }
     }
     
-    // Check OTP sessions too as a fallback
-    if (transaction.order_id) {
+    // Check OTP sessions as a fallback
+    if (!smsWasReceived && transaction.order_id) {
       const { data: otpSession, error: otpError } = await supabase
         .from('otp_sessions')
-        .select('sms_code, status')
+        .select('sms_code, status, full_sms')
         .eq('order_id', transaction.order_id)
         .maybeSingle();
         
       if (!otpError && otpSession && 
-          (otpSession.sms_code || otpSession.status === 'RECEIVED')) {
+          (otpSession.sms_code || otpSession.full_sms || 
+           otpSession.status === 'RECEIVED' || otpSession.status === 'FINISHED')) {
         console.log(`Not refunding order ${transaction.order_id} as SMS was found in OTP session`);
-        return; // Exit early, no refund needed
+        smsWasReceived = true;
       }
     }
     
-    // Check if this transaction has already been refunded by looking for CREDIT transactions with this order_id
+    // If SMS was received, update the transaction status to COMPLETED and exit
+    if (smsWasReceived) {
+      const { error: updateToCompletedError } = await supabase
+        .from('transactions')
+        .update({ 
+          status: 'COMPLETED',  // Mark as COMPLETED instead of FAILED
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', transactionId);
+      
+      if (updateToCompletedError) {
+        console.error('Error updating transaction status to COMPLETED:', updateToCompletedError);
+      } else {
+        console.log(`Transaction ${transactionId} marked as COMPLETED because SMS was received`);
+      }
+      
+      return; // Exit without processing refund
+    }
+    
+    // Check if this transaction has already been refunded
     const { data: existingRefunds, error: refundCheckError } = await supabase
       .from('transactions')
       .select('*')
@@ -983,8 +1006,17 @@ export const updateVirtualNumberStatus = async (
 ): Promise<void> => {
   try {
     console.log(`[updateVirtualNumberStatus] Updating order ${orderId} to status ${status} for user ${userId}`);
+    
+    // Enhanced logging for skipRefund parameter
     if (skipRefund) {
-      console.log(`Skipping refund for order ${orderId} as SMS was already received`);
+      console.log(`Skipping refund for order ${orderId} as explicitly requested (skipRefund=true)`);
+    }
+    
+    // ALWAYS skip refund for FINISHED or RECEIVED status
+    // This provides an additional safety check
+    if (status === 'FINISHED' || status === 'RECEIVED') {
+      console.log(`Status is ${status}, forcing skipRefund=true for order ${orderId}`);
+      skipRefund = true;
     }
     
     // Find the DEBIT transaction associated with this order (original purchase)
@@ -1074,10 +1106,23 @@ export const updateVirtualNumberStatus = async (
           try {
             // Skip refund if service was already used (SMS received)
             if (skipRefund) {
-              console.log(`Skipping refund for order ${orderId} as SMS was already received`);
+              console.log(`Skipping refund for order ${orderId} as SMS was already received or skipRefund=true`);
             } else {
-              await handleVirtualNumberRefund(userId, transactionId, status);
-              console.log(`Refund successfully processed for order ${orderId}`);
+              // Double check that this order doesn't have an SMS already (backup check)
+              // This prevents refunds even if skipRefund was incorrectly passed as false
+              // Check OTP session first
+              const { data: otpSession } = await supabase
+                .from('otp_sessions')
+                .select('sms_code, status')
+                .eq('order_id', orderId)
+                .maybeSingle();
+                
+              if (otpSession && (otpSession.sms_code || otpSession.status === 'RECEIVED' || otpSession.status === 'FINISHED')) {
+                console.log(`Skip safety: Not refunding order ${orderId} as SMS was found in OTP session`);
+              } else {
+                await handleVirtualNumberRefund(userId, transactionId, status);
+                console.log(`Refund successfully processed for order ${orderId}`);
+              }
             }
           } catch (refundError) {
             console.error(`Error processing refund for ${status} status:`, refundError);
