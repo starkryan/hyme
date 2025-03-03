@@ -1045,6 +1045,9 @@ const GetVirtualNumber = () => {
       
       console.log("Starting cancel process for order:", number.id);
       
+      // Ensure we're using a string for the order ID
+      const orderId = number.id.toString();
+      
       // Check for transaction ID first
       const transactionId = savedTransaction.current?.id;
       console.log("Transaction ID from context:", transactionId);
@@ -1065,7 +1068,7 @@ const GetVirtualNumber = () => {
       let smsReceivedError = false;
       
       try {
-        data = await cancelOrder(number.id);
+        data = await cancelOrder(orderId);
         console.log("Cancellation successful:", data);
       } catch (cancelError: any) {
         console.error("Error cancelling number in 5sim:", cancelError);

@@ -690,37 +690,48 @@ export const checkSmsMessages = async (orderId: number): Promise<SmsInboxRespons
 
 export const cancelOrder = async (orderId: string): Promise<any | undefined> => {
   try {
-    // Removed console.log to clean for deployment
+    console.log(`[Client] Initiating cancel for order: ${orderId}`);
     
-    const url = `${API_URL}/user/cancel/${orderId}`;
+    // Use our API route instead of direct API call
+    const url = `/api/cancel-order?id=${orderId}`;
     
     const response = await fetch(url, {
-      method: 'GET',
       headers: {
-        'Accept': 'application/json',
-        'Authorization': `Bearer ${API_KEY}`
+        'Accept': 'application/json'
       }
     });
 
+    console.log(`[Client] Cancel order API response status: ${response.status}`);
+
     if (!response.ok) {
-      const errorData = await response.text();
-      
-      // For deployment, don't log these errors to console
-      // console.error(`Error response from cancel API (${response.status}):`, errorData);
+      let errorData;
+      try {
+        errorData = await response.json();
+        console.log(`[Client] Error response data:`, errorData);
+      } catch (e) {
+        errorData = await response.text();
+        console.log(`[Client] Error response text:`, errorData);
+      }
       
       // Special handling for 400 errors which often indicate the order can't be cancelled
       // because the SMS was already received or the order is in a final state
       if (response.status === 400) {
-        let parsedError;
-        try {
-          parsedError = JSON.parse(errorData);
-        } catch (e) {
-          // If JSON parsing fails, use the raw text
-          parsedError = { error: errorData };
+        const errorDetail = typeof errorData === 'object' && errorData?.error 
+          ? errorData.error 
+          : typeof errorData === 'object' && errorData?.details
+            ? errorData.details
+            : typeof errorData === 'string'
+              ? errorData
+              : 'Order cannot be cancelled';
+        
+        // Check for SMS received scenario
+        if (errorDetail.includes("SMS was already received") || 
+            errorData?.reason === 'SMS_RECEIVED') {
+          throw new Error(`SMS was already received`);
         }
         
         // Check for "order not found" which usually means the order is already in a final state
-        if (errorData.includes("order not found")) {
+        if (errorDetail.includes("order not found") || errorDetail.includes("already processed")) {
           // Not a real error for user experience - just return success
           return { 
             success: true, 
@@ -728,28 +739,26 @@ export const cancelOrder = async (orderId: string): Promise<any | undefined> => 
             message: "Order already processed" 
           };
         }
-        
-        const errorDetail = typeof parsedError === 'object' && parsedError?.error 
-          ? parsedError.error 
-          : 'Order cannot be cancelled';
           
         throw new Error(`Cannot cancel order: ${errorDetail}`);
       }
       
-      throw new Error(`HTTP error! status: ${response.status}, details: ${errorData}`);
+      throw new Error(`HTTP error! status: ${response.status}, details: ${
+        typeof errorData === 'object' ? JSON.stringify(errorData) : errorData
+      }`);
     }
 
     const data = await response.json();
-    // Removed console.log for deployment
+    console.log(`[Client] Cancel order successful:`, data);
     return data;
   } catch (error: any) {
-    // For deployment, don't log these errors to console
-    // console.error('Failed to cancel order:', error);
+    console.error('[Client] Failed to cancel order:', error.message);
     
     // Handle "order not found" errors gracefully for user experience
     if (error.message && (
         error.message.includes('order not found') || 
-        error.message.includes('400')
+        error.message.includes('already processed') ||
+        error.message.includes('already canceled')
     )) {
       // Return success with message instead of throwing error
       return {
@@ -757,6 +766,15 @@ export const cancelOrder = async (orderId: string): Promise<any | undefined> => 
         status: "CANCELED",
         message: "Order already processed"
       };
+    }
+    
+    // Check for SMS received scenario
+    if (error.message && (
+        error.message.includes('SMS was already received') || 
+        error.message.includes('SMS_RECEIVED') ||
+        error.message.includes('Cannot cancel order')
+    )) {
+      throw new Error('SMS was already received');
     }
     
     // Rethrow other errors

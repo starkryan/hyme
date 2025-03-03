@@ -20,26 +20,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: 'Order ID parameter is required' });
   }
 
+  console.log(`[API] Attempting to cancel order with ID: ${id}`);
+
   try {
-    // Removed console.log for deployment
+    const cancelUrl = `${API_URL}/user/cancel/${id}`;
+    console.log(`[API] Making request to 5sim: ${cancelUrl}`);
     
-    const response = await axios.get(`${API_URL}/user/cancel/${id}`, {
+    const response = await axios.get(cancelUrl, {
       headers: {
         'Authorization': `Bearer ${API_KEY}`,
         'Accept': 'application/json'
       }
     });
 
-    // Removed console.log for deployment
+    console.log(`[API] 5sim cancel response status: ${response.status}`);
+    console.log(`[API] 5sim cancel response data:`, response.data);
 
     if (!response.data) {
       throw new Error('No data received from cancel order API');
     }
 
+    console.log(`[API] Successfully cancelled order ${id}`);
     return res.status(200).json(response.data);
     
   } catch (error: any) {
-    // Removed detailed console.error for deployment
+    console.error(`[API] Error cancelling order ${id}:`, error.message);
+    
+    // Log more details about the error
+    if (error.response) {
+      console.error(`[API] Error status: ${error.response.status}`);
+      console.error(`[API] Error data:`, error.response.data);
+    }
     
     // Check if the error is "order not found" which means it's already in a final state
     const errorDetails = error.response?.data;
@@ -47,7 +58,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ? errorDetails 
       : errorDetails?.message || error.message;
     
+    console.log(`[API] Extracted error message: ${errorMessage}`);
+    
     if (errorMessage?.includes('order not found')) {
+      console.log(`[API] Order ${id} not found - returning successful cancellation`);
       // For "order not found" errors, return a success response
       // since this is not really an error from the user's perspective
       return res.status(200).json({ 
@@ -62,6 +76,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const errorMessage = error.response?.data?.message || 
                           'Order cannot be cancelled, possibly because SMS was already received';
       
+      console.log(`[API] 400 error for order ${id} - ${errorMessage}`);
       return res.status(400).json({ 
         error: 'Order cannot be cancelled',
         details: errorMessage,
@@ -69,6 +84,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
+    console.error(`[API] Returning error for order ${id}`);
     return res.status(error.response?.status || 500).json({ 
       error: 'Failed to cancel order',
       details: error.message || 'Unknown error'
