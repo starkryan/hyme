@@ -21,7 +21,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { country, service, operator = 'any' } = req.query;
+  const { country, service, operator } = req.query;
 
   if (!country || typeof country !== 'string') {
     return res.status(400).json({ error: 'Country parameter is required' });
@@ -31,8 +31,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: 'Service parameter is required' });
   }
 
-  if (typeof operator !== 'string') {
-    return res.status(400).json({ error: 'Operator must be a string' });
+  if (!operator || typeof operator !== 'string') {
+    return res.status(400).json({ error: 'Operator parameter is required' });
   }
 
   try {

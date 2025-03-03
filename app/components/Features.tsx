@@ -13,7 +13,7 @@ import {
 export function FeaturesSectionWithHoverEffects() {
   const features = [
     {
-      title: "Built for developers",
+      title: "Built for everyone",
       description:
         "Built for engineers, developers, dreamers, thinkers and doers.",
       icon: <IconTerminal2 />,

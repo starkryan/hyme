@@ -10,7 +10,7 @@ import {
 import { IconBrandTelegram } from '@tabler/icons-react';
 
 // Update this with your actual Telegram username or support channel
-const TELEGRAM_SUPPORT_LINK = 'https://t.me/your_support_username';
+const TELEGRAM_SUPPORT_LINK = 'https://t.me/otpmaya';
 
 export function SupportButton() {
   const handleSupportClick = () => {

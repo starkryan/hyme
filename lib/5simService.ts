@@ -511,7 +511,7 @@ export const getServices = async (
 export const getVirtualNumber = async (
   country: string,
   service: string,
-  operator: string = 'any'
+  operator: string
 ): Promise<{
   created_at: string; phone?: string; id?: string; error?: string 
 }> => {
@@ -989,7 +989,7 @@ export const initiateVerification = async (
     const normalizedCountry = normalizeCountryInput(countryCode);
     
     // Get virtual number
-    const result = await getVirtualNumber(normalizedCountry, service);
+    const result = await getVirtualNumber(normalizedCountry, service, 'any');
     
     if (!result.phone) {
       throw new Error(result.error || 'Failed to get virtual number');

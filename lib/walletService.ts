@@ -814,26 +814,32 @@ export const handleSuccessfulOTP = async (
 export const handleVirtualNumberRefund = async (
   userId: string,
   transactionId: string,
-  reason: 'CANCELED' | 'TIMEOUT' | 'BANNED'
+  reason: 'CANCELED' | 'TIMEOUT' | 'BANNED' | 'FINISHED'
 ): Promise<void> => {
   try {
-    console.log(`[handleVirtualNumberRefund] Processing refund for ${reason} transaction ${transactionId} for user ${userId}`)
+    console.log(`Processing refund for transaction ${transactionId} due to ${reason}`);
     
-    // Check if the transaction exists and get its details
+    // NEVER issue refunds for FINISHED orders - they were successfully completed
+    if (reason === 'FINISHED') {
+      console.log(`Skipping refund for FINISHED order - transaction ${transactionId}`);
+      return;
+    }
+    
+    // Find the original transaction to get the amount
     const { data: transaction, error: transactionError } = await supabase
       .from('transactions')
       .select('*')
       .eq('id', transactionId)
-      .single()
-      
+      .single();
+
     if (transactionError) {
-      console.error('Error fetching transaction during refund:', transactionError)
-      throw new Error('Transaction not found for refund')
+      console.error('Error fetching transaction during refund:', transactionError);
+      throw new Error('Transaction not found for refund');
     }
     
     if (!transaction) {
-      console.error(`Transaction not found for refund: ${transactionId}`)
-      throw new Error('Transaction not found for refund')
+      console.error(`Transaction not found for refund: ${transactionId}`);
+      throw new Error('Transaction not found for refund');
     }
 
     // IMPORTANT: Check if there was an SMS received for this order
@@ -1110,6 +1116,7 @@ export const updateVirtualNumberStatus = async (
           
         case 'FINISHED':
           console.log(`Finalizing order ${orderId} as FINISHED`);
+          // Never process a refund for FINISHED status
           // Just update status to COMPLETED if not already
           if (transaction.status !== 'COMPLETED') {
             const { error: updateError } = await supabase

@@ -99,32 +99,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
-    // Also check 'any' operator availability
-    const anyUrl = `${API_URL}/guest/products/${normalizedCountry}/any`;
-    try {
-      const anyResponse = await axios.get(anyUrl, {
-        headers: {
-          'Accept': 'application/json'
-        }
-      });
-
-      if (anyResponse.data) {
-        const anyData = anyResponse.data;
-        if (anyData && anyData[service] && anyData[service].Qty > 0) {
-          operators.unshift({
-            id: 'any',
-            name: 'any',
-            displayName: 'Any Operator',
-            cost: anyData[service].Price,
-            count: anyData[service].Qty,
-            rate: 90 // Higher success rate for 'any' operator
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching prices for "any" operator:', error);
-    }
-
     // Log the operators we found
     console.log(`Server-side found ${operators.length} operators`);
 
