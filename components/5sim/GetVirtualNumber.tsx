@@ -1921,7 +1921,7 @@ const GetVirtualNumber = () => {
                     <div className="flex items-center gap-2">
                       <Wallet className="w-3 h-3 sm:w-4 sm:h-4" />
                       {isWalletLoading ? (
-                        <Spinner className="h-3 w-3" />
+                        <Spinner variant="infinite" className="h-3 w-3" />
                       ) : (
                         <span>₹{walletBalance.toFixed(2)}</span>
                       )}
@@ -1956,7 +1956,7 @@ const GetVirtualNumber = () => {
             <div className="space-y-2">
               <Label className="flex items-center gap-2 text-sm font-medium">
                 Country
-                {isCountryLoading && <Spinner className="h-4 w-4" />}
+                {isCountryLoading && <Spinner variant="infinite" className="h-4 w-4" />}
               </Label>
               <Popover
                 open={countryOpen}
@@ -2247,31 +2247,27 @@ const GetVirtualNumber = () => {
           {!number ? (
             /* Show get number button when no number is active */
             <>
-              {isLoading ? (
-                <Skeleton className="h-10 w-full md:w-40" />
-              ) : (
-                <Button
-                  onClick={handleGetNumber}
-                  disabled={isLoading || isOrderCancelled || !selectedOperator}
-                  className="w-full md:w-auto h-10 text-sm"
-                >
-                  {isLoading ? (
-                    <div className="flex items-center justify-center gap-2">
-                      <Spinner className="h-4 w-4" />
-                      <span>Getting Number...</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-center gap-2">
-                      <span>Get Virtual Number</span>
-                      {selectedOperatorDetails && (
-                        <Badge variant="secondary" className="ml-2 text-xs">
-                          ₹{convertToINR(selectedOperatorDetails.cost)}
-                        </Badge>
-                      )}
-                    </div>
-                  )}
-                </Button>
-              )}
+              <Button
+                onClick={handleGetNumber}
+                disabled={isLoading || isOrderCancelled || !selectedOperator}
+                className="w-full md:w-auto h-10 text-sm transition-all"
+              >
+                {isLoading ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <Spinner variant="infinite" className="h-4 w-4" />
+                    <span>Getting Number...</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center gap-2">
+                    <span>Get Number</span>
+                    {selectedOperatorDetails && (
+                      <Badge variant="secondary" className="ml-2 text-xs">
+                        ₹{convertToINR(selectedOperatorDetails.cost)}
+                      </Badge>
+                    )}
+                  </div>
+                )}
+              </Button>
 
               {/* Error Display for selection step */}
               {error && (
@@ -2317,7 +2313,11 @@ const GetVirtualNumber = () => {
               refreshComponent={refreshComponent}
               getStatusColor={getStatusColor}
               error={error}
-              NumberDisplaySkeleton={NumberDisplaySkeleton}
+              NumberDisplaySkeleton={() => (
+                <div className="mt-4 p-4 flex items-center justify-center">
+                  <Spinner className="h-8 w-8" />
+                </div>
+              )}
               resetUIState={resetUIState}
               productName={activeProductName || (selectedProduct ? products.find((p) => p.id === selectedProduct)?.name.replace(/_/g, " ") : undefined)}
             />
