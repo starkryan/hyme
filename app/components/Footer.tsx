@@ -108,7 +108,7 @@ function Footerdemo() {
             <a href="/privacy" className="transition-colors hover:text-primary">
               Privacy Policy
             </a>
-            <a href="/terms" className="transition-colors hover:text-primary">
+            <a href="/terms-of-service" className="transition-colors hover:text-primary">
               Terms of Service
             </a>
           </nav>
