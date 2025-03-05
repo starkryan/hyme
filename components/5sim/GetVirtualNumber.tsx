@@ -1613,6 +1613,12 @@ const GetVirtualNumber = () => {
       }
 
       setProducts(products)
+      setCountryOpen(false)
+      // Add slight delay for better focus management
+      setTimeout(() => {
+        const input = document.querySelector('#service-search-input') as HTMLInputElement;
+        input?.focus();
+      }, 50)
     } catch (error: any) {
       console.error("Error fetching products:", error)
       setError(error.message)
@@ -1951,7 +1957,7 @@ const GetVirtualNumber = () => {
         {isCountryLoading || isProductLoading ? (
           <SelectionSkeleton />
         ) : (
-          <div className="grid gap-4 md:gap-6 grid-cols-1 md:grid-cols-3">
+          <div className="grid gap-3 sm:gap-4 grid-cols-1 md:grid-cols-3">
             {/* Country Selection */}
             <div className="space-y-2">
               <Label className="flex items-center gap-2 text-sm font-medium">
@@ -1998,18 +2004,25 @@ const GetVirtualNumber = () => {
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent 
-                  className="w-[var(--radix-popover-trigger-width)] p-0"
+                  className="w-full p-0" // Changed from fixed width to full width
                   side="top"
                   sideOffset={5}
                   align="start"
+                  onOpenAutoFocus={(e) => {
+                    e.preventDefault();
+                    const input = document.querySelector('#country-search-input');
+                    if (input) (input as HTMLInputElement).focus();
+                  }}
                 >
                   <Command>
                     <CommandInput
+                      id="country-search-input"
                       placeholder="Search countries..."
                       value={countrySearchQuery}
                       onValueChange={setCountrySearchQuery}
+                      autoFocus // Ensure keyboard focus
                     />
-                    <CommandList>
+                    <CommandList className="max-h-[300px] overflow-auto">
                       <CommandEmpty>
                         {isCountryLoading ? (
                           <div className="flex flex-col items-center justify-center py-6">
@@ -2083,7 +2096,15 @@ const GetVirtualNumber = () => {
                         <span className="truncate">
                           {products?.find(product => product.id === selectedProduct)?.name}
                         </span>
-                        <Badge variant="secondary" className="font-mono text-xs whitespace-nowrap ml-1">
+                        <Badge 
+                          variant="secondary" 
+                          className={cn(
+                            "font-mono text-xs whitespace-nowrap ml-1",
+                            (products?.find(p => p.id === selectedProduct)?.quantity || 0) < 500 
+                              ? "bg-destructive/10 text-destructive hover:bg-destructive/20" 
+                              : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                          )}
+                        >
                           {products?.find(p => p.id === selectedProduct)?.quantity || 0} avl
                         </Badge>
                       </div>
@@ -2098,18 +2119,25 @@ const GetVirtualNumber = () => {
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent 
-                  className="w-[var(--radix-popover-trigger-width)] p-0"
+                  className="w-full p-0"
                   side="top"
                   sideOffset={5}
                   align="start"
+                  onOpenAutoFocus={(e) => {
+                    e.preventDefault();
+                    const input = document.querySelector('#service-search-input');
+                    if (input) (input as HTMLInputElement).focus();
+                  }}
                 >
                   <Command>
                     <CommandInput
+                      id="service-search-input"
                       placeholder="Search services..."
                       value={productSearchQuery}
                       onValueChange={setProductSearchQuery}
+                      autoFocus
                     />
-                    <CommandList>
+                    <CommandList className="max-h-[300px] overflow-auto">
                       <CommandEmpty>
                         {isProductLoading ? (
                           <div className="flex flex-col items-center justify-center py-6">
@@ -2139,7 +2167,15 @@ const GetVirtualNumber = () => {
                               />
                               <div className="flex items-center justify-between w-full">
                                 <span className="truncate">{product.name}</span>
-                                <Badge variant="secondary" className="font-mono text-xs whitespace-nowrap ml-2">
+                                <Badge 
+                                  variant="secondary" 
+                                  className={cn(
+                                    "font-mono text-xs whitespace-nowrap ml-2",
+                                    product.quantity < 500 
+                                      ? "bg-destructive/10 text-destructive hover:bg-destructive/20" 
+                                      : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                                  )}
+                                >
                                   {product.quantity} avl
                                 </Badge>
                               </div>
@@ -2181,18 +2217,25 @@ const GetVirtualNumber = () => {
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent 
-                  className="w-[var(--radix-popover-trigger-width)] p-0"
+                  className="w-full p-0"
                   side="top"
                   sideOffset={5}
                   align="start"
+                  onOpenAutoFocus={(e) => {
+                    e.preventDefault();
+                    const input = document.querySelector('#operator-search-input');
+                    if (input) (input as HTMLInputElement).focus();
+                  }}
                 >
                   <Command>
                     <CommandInput
+                      id="operator-search-input"
                       placeholder="Search providers..."
                       value={operatorSearchQuery}
                       onValueChange={setOperatorSearchQuery}
+                      autoFocus
                     />
-                    <CommandList>
+                    <CommandList className="max-h-[300px] overflow-auto">
                       <CommandEmpty>
                         {isOperatorLoading ? (
                           <div className="flex flex-col items-center justify-center py-6">
@@ -2221,7 +2264,7 @@ const GetVirtualNumber = () => {
                                 )}
                               />
                               <span className="capitalize truncate">{operator.displayName}</span>
-                              <div className="ml-auto flex items-center gap-1 sm:gap-2 shrink-0">
+                              <div className="ml-auto flex flex-wrap items-center gap-1 sm:gap-2 shrink-0">
                                 <Badge variant={operator.rate >= 90 ? "secondary" : "outline"} className="font-mono text-xs whitespace-nowrap">
                                   {operator.rate}%
                                 </Badge>
@@ -2250,7 +2293,7 @@ const GetVirtualNumber = () => {
               <Button
                 onClick={handleGetNumber}
                 disabled={isLoading || isOrderCancelled || !selectedOperator}
-                className="w-full md:w-auto h-10 text-sm transition-all"
+                className="w-full sm:w-auto h-10 text-sm transition-all flex-grow"
               >
                 {isLoading ? (
                   <div className="flex items-center justify-center gap-2">
@@ -2271,7 +2314,7 @@ const GetVirtualNumber = () => {
 
               {/* Error Display for selection step */}
               {error && (
-                <Card className="bg-destructive/10 border-destructive/20">
+                <Card className="bg-destructive/10 border-destructive/20 flex-grow w-full sm:w-auto">
                   <CardContent className="flex items-center gap-2 p-3">
                     <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
                     <p className="text-sm break-words text-destructive">{error}</p>
