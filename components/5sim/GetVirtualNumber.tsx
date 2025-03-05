@@ -1925,6 +1925,26 @@ const GetVirtualNumber = () => {
     }
   }, [user]);
 
+  // Add state for search queries
+  const [productSearchQuery, setProductSearchQuery] = React.useState("")
+  const [operatorSearchQuery, setOperatorSearchQuery] = React.useState("")
+  
+  // Add filtered products function
+  const filteredProducts = React.useMemo(() => {
+    if (!productSearchQuery.trim() || !Array.isArray(products)) return products
+    return products.filter(product => 
+      product.name.toLowerCase().includes(productSearchQuery.toLowerCase())
+    )
+  }, [products, productSearchQuery])
+  
+  // Add filtered operators function
+  const filteredOperators = React.useMemo(() => {
+    if (!operatorSearchQuery.trim() || !Array.isArray(operators)) return operators
+    return operators.filter(operator => 
+      operator.displayName.toLowerCase().includes(operatorSearchQuery.toLowerCase())
+    )
+  }, [operators, operatorSearchQuery])
+
   return (
     <Card className="w-full ">
       <CardHeader className="sticky top-0 bg-background z-10 border-b px-4 py-3 sm:p-6">
@@ -2015,7 +2035,12 @@ const GetVirtualNumber = () => {
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
+                <PopoverContent 
+                  className="w-[var(--radix-popover-trigger-width)] p-0"
+                  side="top"
+                  sideOffset={5}
+                  align="start"
+                >
                   <Command>
                     <CommandInput
                       placeholder="Search countries..."
@@ -2076,74 +2101,62 @@ const GetVirtualNumber = () => {
                     variant="outline"
                     role="combobox"
                     aria-expanded={productOpen}
-                    className="w-full justify-between h-10 px-3 text-sm"
-                    disabled={!selectedCountry || products.length === 0}
+                    className="w-full justify-between"
                   >
-                    {!selectedCountry ? (
-                      "Select country first"
-                    ) : products.length === 0 ? (
-                      <Spinner className="h-4 w-4" />
-                    ) : selectedProduct ? (
+                    {selectedProduct ? (
                       <div className="flex items-center justify-between w-full">
-                        <span className="capitalize truncate">
-                          {products.find((p) => p.id === selectedProduct)?.name.replace(/_/g, " ")}
+                        <span className="truncate">
+                          {products?.find(product => product.id === selectedProduct)?.name}
                         </span>
                         <Badge variant="secondary" className="font-mono text-xs whitespace-nowrap ml-1">
-                          {products.find((p) => p.id === selectedProduct)?.quantity || 0} avl
+                          {products?.find(p => p.id === selectedProduct)?.quantity || 0} avl
                         </Badge>
                       </div>
                     ) : (
-                      "Select service"
+                      "Select Service"
                     )}
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent 
-                  className="w-[var(--radix-popover-trigger-width)] p-0 z-50 max-h-[70vh] overflow-auto"
-                  align="start"
-                  side="bottom"
+                  className="w-[var(--radix-popover-trigger-width)] p-0"
+                  side="top"
                   sideOffset={5}
-                  alignOffset={0}
-                  avoidCollisions={true}
-                  collisionPadding={{ top: 10, bottom: 70, left: 10, right: 10 }}
-                  sticky="always"
+                  align="start"
                 >
                   <Command>
                     <CommandInput
                       placeholder="Search services..."
-                      value={serviceSearchQuery}
-                      onValueChange={setServiceSearchQuery}
-                      className="text-sm"
+                      value={productSearchQuery}
+                      onValueChange={setProductSearchQuery}
                     />
                     <CommandList>
-                      <CommandEmpty>No service found.</CommandEmpty>
-                      <CommandGroup className="max-h-[50vh] overflow-auto">
-                        {products.map((product) => (
-                          <CommandItem
-                            key={product.id}
-                            value={product.id}
-                            onSelect={() => {
-                              setSelectedProduct(product.id === selectedProduct ? "" : product.id)
-                              setProductOpen(false)
-                            }}
-                            className="text-xs sm:text-sm py-1 sm:py-2"
-                          >
-                            <div className="flex items-center justify-between w-full min-w-0">
-                              <div className="flex items-center gap-2">
-                                <Check
-                                  className={cn(
-                                    "h-3 w-3 sm:h-4 sm:w-4 shrink-0",
-                                    selectedProduct === product.id ? "opacity-100" : "opacity-0",
-                                  )}
-                                />
-                                <span className="capitalize truncate">{product.name.replace(/_/g, " ")}</span>
+                      <CommandEmpty>No services found</CommandEmpty>
+                      <CommandGroup>
+                        {Array.isArray(filteredProducts) &&
+                          filteredProducts.map((product) => (
+                            <CommandItem
+                              key={product.id}
+                              value={product.id}
+                              onSelect={(currentValue) => {
+                                setSelectedProduct(currentValue === selectedProduct ? "" : currentValue)
+                                setProductOpen(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  selectedProduct === product.id ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              <div className="flex items-center justify-between w-full">
+                                <span className="truncate">{product.name}</span>
+                                <Badge variant="secondary" className="font-mono text-xs whitespace-nowrap ml-2">
+                                  {product.quantity} avl
+                                </Badge>
                               </div>
-                              <Badge variant="secondary" className="font-mono text-xs whitespace-nowrap">
-                                {product.quantity} avl
-                              </Badge>
-                            </div>
-                          </CommandItem>
-                        ))}
+                            </CommandItem>
+                          ))}
                       </CommandGroup>
                     </CommandList>
                   </Command>
@@ -2169,38 +2182,48 @@ const GetVirtualNumber = () => {
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-[200px] p-0">
+                <PopoverContent 
+                  className="w-[var(--radix-popover-trigger-width)] p-0"
+                  side="top"
+                  sideOffset={5}
+                  align="start"
+                >
                   <Command>
-                    <CommandInput placeholder="Search providers..." />
+                    <CommandInput
+                      placeholder="Search providers..."
+                      value={operatorSearchQuery}
+                      onValueChange={setOperatorSearchQuery}
+                    />
                     <CommandList>
                       <CommandEmpty>No provider found.</CommandEmpty>
                       <CommandGroup>
-                        {operators.map((operator) => (
-                          <CommandItem
-                            key={operator.id}
-                            value={operator.id}
-                            onSelect={(currentValue) => {
-                              setSelectedOperator(currentValue === selectedOperator ? "" : currentValue)
-                              setOperatorOpen(false)
-                            }}
-                          >
-                            <Check
-                              className={cn(
-                                "mr-2 h-4 w-4",
-                                selectedOperator === operator.id ? "opacity-100" : "opacity-0"
-                              )}
-                            />
-                            <span className="capitalize truncate">{operator.displayName}</span>
-                            <div className="ml-auto flex items-center gap-1 sm:gap-2 shrink-0">
-                              <Badge variant={operator.rate >= 90 ? "secondary" : "outline"} className="font-mono text-xs whitespace-nowrap">
-                                {operator.rate}%
-                              </Badge>
-                              <Badge variant="secondary" className="font-mono text-xs whitespace-nowrap">
-                                ₹{convertToINR(operator.cost)}
-                              </Badge>
-                            </div>
-                          </CommandItem>
-                        ))}
+                        {Array.isArray(filteredOperators) &&
+                          filteredOperators.map((operator) => (
+                            <CommandItem
+                              key={operator.id}
+                              value={operator.id}
+                              onSelect={(currentValue) => {
+                                setSelectedOperator(currentValue === selectedOperator ? "" : currentValue)
+                                setOperatorOpen(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  selectedOperator === operator.id ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              <span className="capitalize truncate">{operator.displayName}</span>
+                              <div className="ml-auto flex items-center gap-1 sm:gap-2 shrink-0">
+                                <Badge variant={operator.rate >= 90 ? "secondary" : "outline"} className="font-mono text-xs whitespace-nowrap">
+                                  {operator.rate}%
+                                </Badge>
+                                <Badge variant="secondary" className="font-mono text-xs whitespace-nowrap">
+                                  ₹{convertToINR(operator.cost)}
+                                </Badge>
+                              </div>
+                            </CommandItem>
+                          ))}
                       </CommandGroup>
                     </CommandList>
                   </Command>
