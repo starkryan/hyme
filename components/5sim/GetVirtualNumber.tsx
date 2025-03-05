@@ -114,6 +114,7 @@ const GetVirtualNumber = () => {
   const [orderId, setOrderId] = useState<number | null>(null)
   const [isCountryLoading, setIsCountryLoading] = useState(false)
   const [isProductLoading, setIsProductLoading] = useState(false)
+  const [isOperatorLoading, setIsOperatorLoading] = useState(false)
   const [isRetrying, setIsRetrying] = useState(false)
   const [retryAttempts, setRetryAttempts] = useState(0)
   const [maxRetryAttempts] = useState(30) // 5 minutes with 10s interval
@@ -536,6 +537,7 @@ const GetVirtualNumber = () => {
       if (selectedCountry && selectedProduct) {
         setOperators([]) // Clear existing operators
         setSelectedOperator("") // Reset operator selection
+        setIsOperatorLoading(true) // Set loading state
 
         try {
           console.log("Fetching operators for:", { country: selectedCountry, product: selectedProduct })
@@ -558,6 +560,8 @@ const GetVirtualNumber = () => {
           toast.error("Failed to fetch operators", {
             description: error.message,
           })
+        } finally {
+          setIsOperatorLoading(false) // Clear loading state
         }
       }
     }
@@ -1967,6 +1971,7 @@ const GetVirtualNumber = () => {
                     role="combobox"
                     aria-expanded={countryOpen}
                     className="w-full justify-between"
+                    disabled={isCountryLoading}
                   >
                     {selectedCountry ? (
                       <div className="flex items-center gap-2 truncate">
@@ -1983,9 +1988,13 @@ const GetVirtualNumber = () => {
                         })()}
                       </div>
                     ) : (
-                      "Select Country"
+                      isCountryLoading ? "Loading countries..." : "Select Country"
                     )}
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    {isCountryLoading ? (
+                      <Spinner className="h-4 w-4 ml-2" />
+                    ) : (
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    )}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent 
@@ -2001,7 +2010,16 @@ const GetVirtualNumber = () => {
                       onValueChange={setCountrySearchQuery}
                     />
                     <CommandList>
-                      <CommandEmpty>No countries found</CommandEmpty>
+                      <CommandEmpty>
+                        {isCountryLoading ? (
+                          <div className="flex flex-col items-center justify-center py-6">
+                            <Spinner className="h-8 w-8 mb-2" />
+                            <p className="text-sm text-muted-foreground">Loading countries...</p>
+                          </div>
+                        ) : (
+                          "No countries found"
+                        )}
+                      </CommandEmpty>
                       <CommandGroup>
                         {Array.isArray(filteredCountries) &&
                           filteredCountries.map((country) => (
@@ -2041,7 +2059,10 @@ const GetVirtualNumber = () => {
 
             {/* Service Selection */}
             <div className="space-y-2">
-              <Label className="flex items-center gap-2 text-sm font-medium">Service for OTP</Label>
+              <Label className="flex items-center gap-2 text-sm font-medium">
+                Service for OTP
+                {isProductLoading && <Spinner className="h-4 w-4" />}
+              </Label>
               <Popover
                 open={productOpen}
                 onOpenChange={(open) => {
@@ -2055,6 +2076,7 @@ const GetVirtualNumber = () => {
                     role="combobox"
                     aria-expanded={productOpen}
                     className="w-full justify-between"
+                    disabled={isProductLoading || !selectedCountry}
                   >
                     {selectedProduct ? (
                       <div className="flex items-center justify-between w-full">
@@ -2066,9 +2088,13 @@ const GetVirtualNumber = () => {
                         </Badge>
                       </div>
                     ) : (
-                      "Select Service"
+                      isProductLoading ? "Loading services..." : "Select Service"
                     )}
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    {isProductLoading ? (
+                      <Spinner className="h-4 w-4 ml-2" />
+                    ) : (
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    )}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent 
@@ -2084,7 +2110,16 @@ const GetVirtualNumber = () => {
                       onValueChange={setProductSearchQuery}
                     />
                     <CommandList>
-                      <CommandEmpty>No services found</CommandEmpty>
+                      <CommandEmpty>
+                        {isProductLoading ? (
+                          <div className="flex flex-col items-center justify-center py-6">
+                            <Spinner className="h-8 w-8 mb-2" />
+                            <p className="text-sm text-muted-foreground">Loading services...</p>
+                          </div>
+                        ) : (
+                          "No services found"
+                        )}
+                      </CommandEmpty>
                       <CommandGroup>
                         {Array.isArray(filteredProducts) &&
                           filteredProducts.map((product) => (
@@ -2119,7 +2154,10 @@ const GetVirtualNumber = () => {
 
             {/* Operator Selection */}
             <div className="space-y-2">
-              <Label className="flex items-center gap-2 text-sm font-medium">Operator</Label>
+              <Label className="flex items-center gap-2 text-sm font-medium">
+                Operator
+                {isOperatorLoading && <Spinner className="h-4 w-4" />}
+              </Label>
               <Popover open={operatorOpen} onOpenChange={setOperatorOpen}>
                 <PopoverTrigger asChild>
                   <Button
@@ -2128,11 +2166,18 @@ const GetVirtualNumber = () => {
                     aria-expanded={operatorOpen}
                     className="w-full sm:w-[200px] justify-between"
                     onClick={() => setOperatorOpen(!operatorOpen)}
+                    disabled={isOperatorLoading || !selectedProduct}
                   >
-                    {selectedOperator
-                      ? operators.find((operator) => operator.id === selectedOperator)?.displayName
-                      : "Select Provider..."}
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    {selectedOperator ? (
+                      operators.find((operator) => operator.id === selectedOperator)?.displayName
+                    ) : (
+                      isOperatorLoading ? "Loading providers..." : "Select Provider..."
+                    )}
+                    {isOperatorLoading ? (
+                      <Spinner className="h-4 w-4 ml-2" />
+                    ) : (
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    )}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent 
@@ -2148,7 +2193,16 @@ const GetVirtualNumber = () => {
                       onValueChange={setOperatorSearchQuery}
                     />
                     <CommandList>
-                      <CommandEmpty>No provider found.</CommandEmpty>
+                      <CommandEmpty>
+                        {isOperatorLoading ? (
+                          <div className="flex flex-col items-center justify-center py-6">
+                            <Spinner className="h-8 w-8 mb-2" />
+                            <p className="text-sm text-muted-foreground">Loading providers...</p>
+                          </div>
+                        ) : (
+                          "No provider found."
+                        )}
+                      </CommandEmpty>
                       <CommandGroup>
                         {Array.isArray(filteredOperators) &&
                           filteredOperators.map((operator) => (
