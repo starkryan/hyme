@@ -10,7 +10,6 @@ import {
   cancelOrder,
   banOrder,
   finishOrder,
-  normalizeCountryInput,
 } from "@/lib/5simService"
 
 import {
@@ -27,11 +26,9 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
-import { Check, AlertTriangle, ChevronsUpDown, RefreshCw, Wallet } from "lucide-react"
+import { AlertTriangle, RefreshCw, Wallet } from "lucide-react"
 import { Label } from "@/components/ui/label"
 import { Spinner } from "@/components/ui/spinner"
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
 import { useUser } from "@clerk/nextjs"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -45,25 +42,9 @@ import { ReceivedNumberView } from "./ReceivedNumberView"
 import axios from 'axios'
 import { supabase } from "@/lib/supabase"
 import { Combobox } from "@/components/ui/combobox"
-
-// Replace the image-based CountryFlag component with an emoji-based one
-const CountryFlag = ({ iso }: { iso: string }) => {
-  // Convert ISO code to regional indicator symbols (emoji flag)
-  // Each country's ISO code (2 letters) maps to a pair of regional indicator symbols
-  const getFlagEmoji = (countryCode: string): string => {
-    const codePoints = countryCode
-      .toUpperCase()
-      .split('')
-      .map(char => 127397 + char.charCodeAt(0));
-    return String.fromCodePoint(...codePoints);
-  };
-
-  return (
-    <span className="text-xl mr-2" role="img" aria-label="flag">
-      {getFlagEmoji(iso)}
-    </span>
-  );
-};
+import { OperatorItem } from "./OperatorItem"
+import { ProductItem } from "./ProductItem"
+import { CountryItem } from "./CountryItem"
 
 interface Product {
   id: string
@@ -1867,7 +1848,6 @@ const GetVirtualNumber = () => {
     return countries.map(country => ({
       value: country.code,
       label: country.name.charAt(0).toUpperCase() + country.name.slice(1).toLowerCase(),
-      icon: <CountryFlag iso={country.iso} />
     }))
   }, [countries])
 
@@ -1954,106 +1934,117 @@ const GetVirtualNumber = () => {
         {isCountryLoading || isProductLoading ? (
           <SelectionSkeleton />
         ) : (
-          <div className="grid gap-3 sm:gap-4 grid-cols-1 md:grid-cols-3">
-            {/* Country Selection */}
-            <div className="space-y-2">
-              <Label className="flex items-center gap-2 text-sm font-medium">
-                Country
-                {isCountryLoading && <Spinner variant="infinite" className="h-4 w-4" />}
-              </Label>
-              <Combobox
-                options={countryOptions}
-                value={selectedCountry}
-                onChange={handleCountryChange}
-                placeholder="Select country..."
-                searchPlaceholder="Search countries..."
-                isLoading={isCountryLoading}
-                disabled={isCountryLoading || isLoading}
-                emptyText={isCountryLoading ? "Loading countries..." : "No countries found."}
-                triggerClassName="w-full sm:w-[200px]"
-              />
-            </div>
+          <Card className="p-4 bg-card/50 border-muted">
+            <div className="space-y-4">
+              <h3 className="text-lg font-medium">Select Service Options</h3>
+              <div className="grid gap-6 sm:gap-8 grid-cols-1 md:grid-cols-3">
+                {/* Country Selection */}
+                <div className="space-y-3">
+                  <Label className="flex items-center gap-2 text-base font-medium">
+                    Country
+                    {isCountryLoading && <Spinner variant="infinite" className="h-4 w-4" />}
+                  </Label>
+                  <Combobox
+                    options={countryOptions}
+                    value={selectedCountry}
+                    onChange={handleCountryChange}
+                    placeholder="Select country..."
+                    searchPlaceholder="Search countries..."
+                    isLoading={isCountryLoading}
+                    disabled={isCountryLoading || isLoading}
+                    emptyText={isCountryLoading ? "Loading countries..." : "No countries found."}
+                    triggerClassName="w-full"
+                    contentClassName="w-[280px]"
+                    renderOption={(option) => {
+                      const country = countries.find(c => c.code === option.value);
+                      if (!country) return null;
+                      return (
+                        <CountryItem
+                          country={country}
+                          isSelected={selectedCountry === country.code}
+                        />
+                      );
+                    }}
+                  />
+                  
+                </div>
 
-            {/* Product Selection */}
-            <div className="space-y-2">
-              <Label className="flex items-center gap-2 text-sm font-medium">
-                Service
-                {isProductLoading && <Spinner variant="infinite" className="h-4 w-4" />}
-              </Label>
-              <Combobox
-                options={productOptions}
-                value={selectedProduct}
-                onChange={(value) => setSelectedProduct(value)}
-                placeholder="Select service..."
-                searchPlaceholder="Search services..."
-                isLoading={isProductLoading}
-                disabled={isProductLoading || !selectedCountry || isLoading}
-                emptyText={isProductLoading ? "Loading services..." : "No services found."}
-                triggerClassName="w-full sm:w-[200px]"
-                renderOption={(option) => (
-                  <div className="flex items-center justify-between w-full">
-                    <span className="truncate">{option.label}</span>
-                    {products.find(p => p.id === option.value) && (
-                      <Badge 
-                        variant="secondary" 
-                        className={cn(
-                          "font-mono text-xs whitespace-nowrap ml-2",
-                          (products.find(p => p.id === option.value)?.quantity ?? 0) < 500 
-                            ? "bg-destructive/10 text-destructive hover:bg-destructive/20" 
-                            : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                        )}
-                      >
-                        {products.find(p => p.id === option.value)?.quantity ?? 0} avl
-                      </Badge>
-                    )}
-                  </div>
-                )}
-              />
-            </div>
+                {/* Product Selection */}
+                <div className="space-y-3">
+                  <Label className="flex items-center gap-2 text-base font-medium">
+                    Service
+                    {isProductLoading && <Spinner variant="infinite" className="h-4 w-4" />}
+                  </Label>
+                  <Combobox
+                    options={productOptions}
+                    value={selectedProduct}
+                    onChange={(value) => setSelectedProduct(value)}
+                    placeholder="Select service..."
+                    searchPlaceholder="Search services..."
+                    isLoading={isProductLoading}
+                    disabled={isProductLoading || !selectedCountry || isLoading}
+                    emptyText={isProductLoading ? "Loading services..." : "No services found."}
+                    triggerClassName="w-full"
+                    contentClassName="w-[280px]"
+                    renderOption={(option) => {
+                      const product = products.find(p => p.id === option.value);
+                      if (!product) return null;
+                      return (
+                        <ProductItem
+                          product={product}
+                          isSelected={selectedProduct === product.id}
+                        />
+                      );
+                    }}
+                  />
+                  
+                </div>
 
-            {/* Operator Selection */}
-            <div className="space-y-2">
-              <Label className="flex items-center gap-2 text-sm font-medium">
-                Operator
-                {isOperatorLoading && <Spinner variant="infinite" className="h-4 w-4" />}
-              </Label>
-              <Combobox
-                options={operatorOptions}
-                value={selectedOperator}
-                onChange={(value) => setSelectedOperator(value)}
-                placeholder="Select operator..."
-                searchPlaceholder="Search operators..."
-                isLoading={isOperatorLoading}
-                disabled={isOperatorLoading || !selectedProduct || isLoading}
-                emptyText={isOperatorLoading ? "Loading operators..." : "No operators found."}
-                triggerClassName="w-full sm:w-[200px]"
-                renderOption={(option) => {
-                  const operator = operators.find(op => op.id === option.value);
-                  return (
-                    <div className="flex items-center justify-between w-full">
-                      <span className="capitalize truncate">{option.label}</span>
-                      {operator && (
-                        <div className="ml-auto flex flex-wrap items-center gap-1 sm:gap-2 shrink-0">
-                          <Badge 
-                            variant={operator.rate >= 90 ? "secondary" : "outline"} 
-                            className="font-mono text-xs whitespace-nowrap"
-                          >
-                            {operator.rate}%
-                          </Badge>
-                          <Badge 
-                            variant="secondary" 
-                            className="font-mono text-xs whitespace-nowrap"
-                          >
-                            ₹{convertToINR(operator.cost)}
-                          </Badge>
-                        </div>
-                      )}
-                    </div>
-                  );
-                }}
-              />
+                {/* Operator Selection */}
+                <div className="space-y-3">
+                  <Label className="flex items-center gap-2 text-base font-medium">
+                    Operator
+                    {isOperatorLoading && <Spinner variant="infinite" className="h-4 w-4" />}
+                  </Label>
+                  <Combobox
+                    options={operatorOptions}
+                    value={selectedOperator}
+                    onChange={(value) => {
+                      setSelectedOperator(value);
+                      // Also update the selectedOperatorDetails for the button display
+                      if (value) {
+                        const operator = operators.find(op => op.id === value);
+                        if (operator) {
+                          setSelectedOperatorDetails(operator);
+                        }
+                      } else {
+                        setSelectedOperatorDetails(null);
+                      }
+                    }}
+                    placeholder="Select operator..."
+                    searchPlaceholder="Search operators..."
+                    isLoading={isOperatorLoading}
+                    disabled={isOperatorLoading || !selectedProduct || isLoading}
+                    emptyText={isOperatorLoading ? "Loading operators..." : "No operators found."}
+                    triggerClassName="w-full"
+                    contentClassName="w-[300px]"
+                    renderOption={(option) => {
+                      const operator = operators.find(op => op.id === option.value);
+                      if (!operator) return null;
+                      return (
+                        <OperatorItem
+                          operator={operator}
+                          isSelected={selectedOperator === operator.id}
+                          convertToINR={convertToINR}
+                        />
+                      );
+                    }}
+                  />
+                 
+                </div>
+              </div>
             </div>
-          </div>
+          </Card>
         )}
 
         <Separator className="my-4" />

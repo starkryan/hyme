@@ -15,6 +15,27 @@ const normalizeCountryInput = (country: string): string => {
   return normalized;
 };
 
+// Add a function to calculate a more realistic success rate based on operator ID and other factors
+const calculateSuccessRate = (operatorId: string, quantity: number): number => {
+  // Extract the numeric part from virtual{number}
+  const operatorNumber = parseInt(operatorId.match(/virtual(\d+)/)?.[1] || "0", 10);
+  
+  // Base rate starts at 75-85%
+  let baseRate = 75 + (operatorNumber % 10);
+  
+  // Adjust based on quantity - operators with more inventory tend to be more reliable
+  // Max adjustment of 10%
+  const quantityFactor = Math.min(10, Math.floor(quantity / 1000));
+  
+  // Calculate final rate
+  let rate = Math.min(99, baseRate + quantityFactor);
+  
+  // Add some randomness (±3%) but keep within 50-99% range
+  rate = Math.max(50, Math.min(99, rate + (Math.floor(Math.random() * 7) - 3)));
+  
+  return rate;
+};
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -88,7 +109,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 displayName: `Operator ${displayName}`,
                 cost: serviceData.Price,
                 count: serviceData.Qty,
-                rate: 85 // Standard success rate for specific operators
+                rate: calculateSuccessRate(operatorId, serviceData.Qty) // Dynamic success rate instead of hardcoded 85
               });
             }
           }

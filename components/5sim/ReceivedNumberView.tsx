@@ -18,6 +18,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Separator } from "@/components/ui/separator"
+import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp"
 
 // Define OrderStatus type
 export type OrderStatus = "PENDING" | "RECEIVED" | "CANCELED" | "TIMEOUT" | "FINISHED" | "BANNED"
@@ -398,29 +399,54 @@ export function ReceivedNumberView({
           <CardContent className="pt-3 pb-4">
             <div className="flex flex-col gap-4">
               <div className="flex justify-center items-center gap-2 py-3">
-                {smsCode.split("").map((digit, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-center w-11 h-14 rounded-md border-2 border-green-500/60 bg-green-50/60 dark:bg-green-950/20 shadow-sm"
+                {/* Enhanced OTP display with animations and support for different OTP lengths */}
+                <div className="flex flex-col items-center w-full">
+                  <InputOTP
+                    value={smsCode}
+                    maxLength={smsCode.length}
+                    disabled
+                    containerClassName="justify-center"
                   >
-                    <span className="text-xl font-bold text-green-700 dark:text-green-400">{digit}</span>
-                  </div>
-                ))}
+                    <InputOTPGroup className="gap-1.5 md:gap-2">
+                      {Array.from({ length: smsCode.length }).map((_, i) => (
+                        <InputOTPSlot
+                          key={i}
+                          index={i}
+                          className={
+                            `${smsCode.length > 6 ? 'w-8 h-10 text-base' : 'w-10 h-12 text-lg'} 
+                            font-bold rounded-md border-2 border-green-500/60 
+                            bg-green-50/60 dark:bg-green-950/20 
+                            text-green-700 dark:text-green-400 shadow-sm
+                            animate-in fade-in-0 slide-in-from-bottom-2 duration-300 fill-mode-forwards`
+                          }
+                          style={{ animationDelay: `${i * 75}ms` }}
+                        />
+                      ))}
+                    </InputOTPGroup>
+                  </InputOTP>
+                  <p className="text-xs text-muted-foreground mt-2 animate-in fade-in-0 duration-300 delay-[400ms]">
+                    {smsCode.length}-digit OTP code
+                  </p>
+                </div>
               </div>
 
               <Button
-                variant="outline"
+                variant={isSmsCodeCopied ? "outline" : "default"}
                 size="sm"
                 onClick={() => handleCopyToClipboard(smsCode, setIsSmsCodeCopied)}
-                className="h-9 mx-auto"
+                className={`h-9 mx-auto transition-all duration-300 ${
+                  isSmsCodeCopied 
+                    ? "border-green-500 text-green-500 bg-green-50 dark:bg-green-950/20 hover:bg-green-100 dark:hover:bg-green-900/20" 
+                    : "bg-green-600 hover:bg-green-700 text-white"
+                }`}
               >
                 {isSmsCodeCopied ? (
-                  <div className="flex items-center gap-1.5">
-                    <Check className="h-3.5 w-3.5 text-green-500" />
-                    <span className="text-xs text-green-500">Copied to Clipboard</span>
+                  <div className="flex items-center gap-1.5 animate-in fade-in-0 duration-300">
+                    <Check className="h-3.5 w-3.5" />
+                    <span className="text-xs">Copied to Clipboard</span>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 animate-in fade-in-0 duration-300">
                     <Copy className="h-3.5 w-3.5" />
                     <span className="text-xs">Copy OTP</span>
                   </div>
@@ -428,7 +454,7 @@ export function ReceivedNumberView({
               </Button>
 
               {fullSms && (
-                <div className="mt-1">
+                <div className="mt-3 animate-in fade-in-0 duration-300 delay-[500ms]">
                   <div className="flex items-center justify-between mb-1.5">
                     <span className="text-xs font-medium text-muted-foreground">Full Message</span>
                     <Button
@@ -437,11 +463,15 @@ export function ReceivedNumberView({
                       onClick={() => handleCopyToClipboard(fullSms, setIsOtpCopied)}
                       className="h-6 px-2"
                     >
-                      {isOtpCopied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+                      {isOtpCopied ? (
+                        <Check className="h-3 w-3 text-green-500" />
+                      ) : (
+                        <Copy className="h-3 w-3" />
+                      )}
                     </Button>
                   </div>
 
-                  <div className="p-3 rounded-md border border-green-200 dark:border-green-800 bg-green-50/30 dark:bg-green-950/10 text-xs overflow-auto max-h-32">
+                  <div className="p-3 rounded-md border border-green-200 dark:border-green-800 bg-green-50/30 dark:bg-green-950/10 text-sm font-medium overflow-auto max-h-32 leading-relaxed shadow-sm">
                     {fullSms}
                   </div>
                 </div>
