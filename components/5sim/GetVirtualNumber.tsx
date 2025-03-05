@@ -441,8 +441,52 @@ const GetVirtualNumber = () => {
           throw new Error("No countries available after transformation")
         }
 
-        // Sort countries by name for better UX
-        const sortedCountries = formattedCountries.sort((a, b) => a.name.localeCompare(b.name))
+        // Define priority countries to show at the top
+        const priorityCountryCodes = [
+          "in", // India
+          "us", // United States
+          "gb", // United Kingdom (England)
+          "ca", // Canada
+          "cn", // China
+          "pk", // Pakistan
+          "np", // Nepal
+          "bd", // Bangladesh
+          "ru", // Russia
+          "sg", // Singapore
+          "ae", // United Arab Emirates
+          "sa", // Saudi Arabia
+          "mx", // Mexico
+          "br", // Brazil
+          "ar", // Argentina
+          "ph", // Philippines
+          "id", // Indonesia
+          "th", // Thailand
+          "my", // Malaysia
+          "vn", // Vietnam
+          "hk", // Hong Kong
+              
+        ]
+
+        // Sort countries by placing priority countries at the top, 
+        // then sorting the remaining alphabetically
+        const sortedCountries = formattedCountries.sort((a, b) => {
+          const aPriority = priorityCountryCodes.indexOf(a.iso.toLowerCase())
+          const bPriority = priorityCountryCodes.indexOf(b.iso.toLowerCase())
+          
+          // If both are priority countries, sort by their order in the priority list
+          if (aPriority !== -1 && bPriority !== -1) {
+            return aPriority - bPriority
+          }
+          
+          // If only a is a priority country, it comes first
+          if (aPriority !== -1) return -1
+          
+          // If only b is a priority country, it comes first
+          if (bPriority !== -1) return 1
+          
+          // For non-priority countries, sort alphabetically
+          return a.name.localeCompare(b.name)
+        })
 
         console.log("Setting countries state with:", sortedCountries)
         setCountries(sortedCountries)
