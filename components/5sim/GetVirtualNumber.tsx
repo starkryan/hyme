@@ -1993,50 +1993,34 @@ const GetVirtualNumber = () => {
                     variant="outline"
                     role="combobox"
                     aria-expanded={countryOpen}
-                    className="w-full justify-between h-10 px-3 text-sm"
-                    disabled={isCountryLoading}
+                    className="w-full justify-between"
                   >
-                    {isCountryLoading ? (
-                      <Spinner className="h-4 w-4" />
-                    ) : selectedCountry ? (
-                      <div className="flex items-center justify-between w-full">
-                        <div className="flex items-center truncate">
-                          {(() => {
-                            const country = countries.find((c) => c.code === selectedCountry);
-                            return country ? (
-                              <>
-                                <CountryFlag iso={country.iso} />
-                                <span className="truncate">
-                                  {country.name.charAt(0).toUpperCase() + country.name.slice(1).toLowerCase()}
-                                </span>
-                              </>
-                            ) : (
-                              selectedCountry
-                            );
-                          })()}
-                        </div>
+                    {selectedCountry ? (
+                      <div className="flex items-center gap-2 truncate">
+                        {(() => {
+                          const country = countries.find(c => c.code === selectedCountry);
+                          return country ? (
+                            <>
+                              <CountryFlag iso={country.iso} />
+                              <span className="truncate">{country.name}</span>
+                            </>
+                          ) : (
+                            "Select Country"
+                          );
+                        })()}
                       </div>
                     ) : (
-                      <span className="text-muted-foreground">Select country</span>
+                      "Select Country"
                     )}
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent 
-                  className="w-[var(--radix-popover-trigger-width)] p-0" 
-                  align="start"
-                  side="bottom"
-                  sideOffset={5}
-                  alignOffset={0}
-                  avoidCollisions={true}
-                  sticky="always"
-                >
-                  <Command className="w-full">
+                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
+                  <Command>
                     <CommandInput
                       placeholder="Search countries..."
                       value={countrySearchQuery}
                       onValueChange={setCountrySearchQuery}
-                      className="text-sm"
                     />
                     <CommandList>
                       <CommandEmpty>No countries found</CommandEmpty>
@@ -2046,11 +2030,10 @@ const GetVirtualNumber = () => {
                             <CommandItem
                               key={country.code}
                               value={country.code}
-                              onSelect={() => {
-                                handleCountryChange(country.code)
+                              onSelect={(currentValue) => {
+                                handleCountryChange(currentValue)
                                 setCountryOpen(false)
                               }}
-                              className="flex items-center justify-between text-sm"
                             >
                               <div className="flex items-center gap-2 min-w-0">
                                 <Check
@@ -2177,66 +2160,38 @@ const GetVirtualNumber = () => {
                     variant="outline"
                     role="combobox"
                     aria-expanded={operatorOpen}
-                    className="w-full justify-between h-10 px-3 text-sm"
-                    disabled={!selectedProduct || operators.length === 0}
+                    className="w-full sm:w-[200px] justify-between"
+                    onClick={() => setOperatorOpen(!operatorOpen)}
                   >
-                    {!selectedProduct ? (
-                      "Select service first"
-                    ) : operators.length === 0 ? (
-                      <Spinner className="h-4 w-4" />
-                    ) : selectedOperatorDetails ? (
-                      <div className="flex items-center justify-between w-full">
-                        <span className="capitalize truncate">{selectedOperatorDetails.displayName}</span>
-                        <div className="flex items-center gap-1 sm:gap-2 shrink-0 ml-1">
-                          <Badge variant={selectedOperatorDetails.rate >= 90 ? "secondary" : "outline"} className="font-mono text-xs whitespace-nowrap">
-                            {selectedOperatorDetails.rate}%
-                          </Badge>
-                          <Badge variant="secondary" className="font-mono text-xs whitespace-nowrap">
-                            ₹{convertToINR(selectedOperatorDetails.cost)}
-                          </Badge>
-                        </div>
-                      </div>
-                    ) : (
-                      "Select provider"
-                    )}
+                    {selectedOperator
+                      ? operators.find((operator) => operator.id === selectedOperator)?.displayName
+                      : "Select Provider..."}
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent 
-                  className="w-[var(--radix-popover-trigger-width)] p-0 z-50 max-h-[70vh] overflow-auto"
-                  align="start"
-                  side="bottom"
-                  sideOffset={5}
-                  alignOffset={0}
-                  avoidCollisions={true}
-                  collisionPadding={{ top: 10, bottom: 70, left: 10, right: 10 }}
-                  sticky="always"
-                >
-                  <Command className="w-full">
-                    <CommandInput className="w-full text-sm" placeholder="Search providers..." />
-                    <CommandList className="w-full">
+                <PopoverContent className="w-[200px] p-0">
+                  <Command>
+                    <CommandInput placeholder="Search providers..." />
+                    <CommandList>
                       <CommandEmpty>No provider found.</CommandEmpty>
-                      <CommandGroup className="max-h-[50vh] overflow-auto">
+                      <CommandGroup>
                         {operators.map((operator) => (
                           <CommandItem
                             key={operator.id}
                             value={operator.id}
-                            onSelect={() => {
-                              setSelectedOperator(operator.id === selectedOperator ? "" : operator.id)
+                            onSelect={(currentValue) => {
+                              setSelectedOperator(currentValue === selectedOperator ? "" : currentValue)
                               setOperatorOpen(false)
                             }}
-                            className="flex items-center justify-between text-xs sm:text-sm py-1 sm:py-2"
                           >
-                            <div className="flex items-center">
-                              <Check
-                                className={cn(
-                                  "mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4",
-                                  selectedOperator === operator.id ? "opacity-100" : "opacity-0",
-                                )}
-                              />
-                              <span className="capitalize truncate">{operator.displayName}</span>
-                            </div>
-                            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+                            <Check
+                              className={cn(
+                                "mr-2 h-4 w-4",
+                                selectedOperator === operator.id ? "opacity-100" : "opacity-0"
+                              )}
+                            />
+                            <span className="capitalize truncate">{operator.displayName}</span>
+                            <div className="ml-auto flex items-center gap-1 sm:gap-2 shrink-0">
                               <Badge variant={operator.rate >= 90 ? "secondary" : "outline"} className="font-mono text-xs whitespace-nowrap">
                                 {operator.rate}%
                               </Badge>
