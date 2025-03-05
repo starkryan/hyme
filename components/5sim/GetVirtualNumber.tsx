@@ -2023,13 +2023,13 @@ const GetVirtualNumber = () => {
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent 
-                  className="w-[var(--radix-popover-trigger-width)] p-0 z-50 max-h-[70vh] overflow-auto" 
+                  className="w-[var(--radix-popover-trigger-width)] p-0 z-[100] max-h-[80vh] overflow-auto sm:max-h-[70vh]" 
                   align="start"
                   side="bottom"
                   sideOffset={5}
                   alignOffset={0}
                   avoidCollisions={true}
-                  collisionPadding={{ top: 10, bottom: 70, left: 10, right: 10 }}
+                  collisionPadding={{ top: 10, bottom: 20, left: 10, right: 10 }}
                   sticky="always"
                 >
                   <Command className="w-full">
@@ -2039,9 +2039,9 @@ const GetVirtualNumber = () => {
                       onValueChange={setCountrySearchQuery}
                       className="text-sm"
                     />
-                    <CommandList>
-                      <CommandEmpty>No countries found</CommandEmpty>
-                      <CommandGroup className="max-h-[50vh] overflow-auto">
+                    <CommandList className="max-h-[60vh] sm:max-h-[50vh] overflow-y-auto">
+                      <CommandEmpty className="py-6 text-center">No countries found</CommandEmpty>
+                      <CommandGroup className="overflow-visible">
                         {Array.isArray(filteredCountries) &&
                           filteredCountries.map((country) => (
                             <CommandItem
@@ -2051,7 +2051,7 @@ const GetVirtualNumber = () => {
                                 handleCountryChange(country.code)
                                 setCountryOpen(false)
                               }}
-                              className="flex items-center justify-between py-2 text-sm"
+                              className="flex items-center justify-between py-3 px-2 text-sm"
                             >
                               <div className="flex items-center gap-2 min-w-0">
                                 <Check
