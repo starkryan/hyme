@@ -280,10 +280,10 @@ export default function Navbar() {
       <div className="md:hidden">
         <div className="flex items-center justify-between p-4">
           
-            <Image src="/logo.webp" alt="OTPMaya Logo" width={32} height={32} />
-            {/* <Link href="/" className="font-bold text-xl text-primary">
+            {/* <Image src="/logo.webp" alt="OTPMaya Logo" width={32} height={32} /> */}
+            <Link href="/" className="font-bold text-xl text-primary">
               OTPMaya
-            </Link> */}
+            </Link>
         
           
           <div className="flex items-center gap-2">
@@ -427,7 +427,9 @@ export default function Navbar() {
       <div className="hidden md:block">
         <div className="container mx-auto flex items-center justify-between max-w-7xl px-4 sm:px-6 lg:px-8 h-16">
           <nav className="flex items-center gap-8">
-            <Image src="/logo.webp" alt="OTPMaya Logo" width={32} height={32} />
+            <Link href="/" className="font-bold text-xl text-primary">
+              OTPMaya
+            </Link>
             <div className="flex items-center gap-6">
               {commonRoutes.map((route) => (
                 <TooltipProvider key={route.href}>

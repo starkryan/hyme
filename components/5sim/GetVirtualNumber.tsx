@@ -1420,21 +1420,7 @@ const GetVirtualNumber = () => {
     console.log("Refreshing component state...")
     setError(null)
     
-    // Only attempt to refresh if we have a user and an order ID
-    if (user && orderId) {
-      try {
-        // Get latest order status from API
-        await syncOrderStatus(orderId.toString())
-        
-        // Also refresh the wallet balance
-        await refetchBalance()
-        
-        toast.success("Status refreshed")
-      } catch (error) {
-        console.error("Error refreshing state:", error)
-        toast.error("Could not refresh status")
-      }
-    }
+  
   }
 
   const handleFinishOrder = async () => {
