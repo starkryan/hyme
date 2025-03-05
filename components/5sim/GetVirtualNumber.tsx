@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import {
   getProducts,
   getOperators,
@@ -44,6 +44,7 @@ import { useQuery } from '@tanstack/react-query'
 import { ReceivedNumberView } from "./ReceivedNumberView"
 import axios from 'axios'
 import { supabase } from "@/lib/supabase"
+import { Combobox } from "@/components/ui/combobox"
 
 // Replace the image-based CountryFlag component with an emoji-based one
 const CountryFlag = ({ iso }: { iso: string }) => {
@@ -137,12 +138,6 @@ const GetVirtualNumber = () => {
   const [otpTimeout, setOtpTimeout] = useState<number | null>(300) // 5 minutes in seconds
   const [timeLeft, setTimeLeft] = useState<number | null>(300)
   const [isTimeoutActive, setIsTimeoutActive] = useState(false)
-  const [countryOpen, setCountryOpen] = useState(false)
-  const [productOpen, setProductOpen] = useState(false)
-  const [operatorOpen, setOperatorOpen] = useState(false)
-  const [filteredCountries, setFilteredCountries] = useState<Country[]>([])
-  const [countrySearchQuery, setCountrySearchQuery] = useState("")
-  const [serviceSearchQuery, setServiceSearchQuery] = useState("")
   const [isCopyingNumber, setIsCopyingNumber] = useState(false)
   const [isCopyingOtp, setIsCopyingOtp] = useState(false)
   const [isOrderIdCopied, setIsOrderIdCopied] = useState(false)
@@ -470,7 +465,6 @@ const GetVirtualNumber = () => {
 
         console.log("Setting countries state with:", sortedCountries)
         setCountries(sortedCountries)
-        setFilteredCountries(sortedCountries)
       } catch (error: any) {
         console.error("Error in fetchCountries:", {
           error: error,
@@ -481,7 +475,6 @@ const GetVirtualNumber = () => {
           description: error.message || "Please check your connection and try again.",
         })
         setCountries([])
-        setFilteredCountries([])
       } finally {
         setIsCountryLoading(false)
       }
@@ -1593,17 +1586,19 @@ const GetVirtualNumber = () => {
 
   const handleCountryChange = async (value: string) => {
     try {
-      const normalizedCountry = normalizeCountryInput(value)
-      console.log("Country selection:", {
-        original: value,
-        normalized: normalizedCountry,
-      })
+      if (!value) {
+        setSelectedCountry("")
+        setProducts([])
+        return
+      }
 
-      setSelectedCountry(normalizedCountry)
+      console.log("Country selection:", value)
+      
+      setSelectedCountry(value)
       setError(null)
       setIsLoading(true)
 
-      const { products, error } = await getProducts(normalizedCountry)
+      const { products, error } = await getProducts(value)
       if (error) {
         throw new Error(error)
       }
@@ -1613,12 +1608,6 @@ const GetVirtualNumber = () => {
       }
 
       setProducts(products)
-      setCountryOpen(false)
-      // Add slight delay for better focus management
-      setTimeout(() => {
-        const input = document.querySelector('#service-search-input') as HTMLInputElement;
-        input?.focus();
-      }, 50)
     } catch (error: any) {
       console.error("Error fetching products:", error)
       setError(error.message)
@@ -1631,7 +1620,7 @@ const GetVirtualNumber = () => {
 
 
   useEffect(() => {
-    setFilteredCountries(countries)
+    setCountries(countries)
   }, [countries])
 
   const getStatusColor = (status: OrderStatus | null): "default" | "secondary" | "destructive" | "outline" => {
@@ -1872,25 +1861,33 @@ const GetVirtualNumber = () => {
     }
   }, [user]);
 
-  // Add state for search queries
-  const [productSearchQuery, setProductSearchQuery] = React.useState("")
-  const [operatorSearchQuery, setOperatorSearchQuery] = React.useState("")
-  
-  // Add filtered products function
-  const filteredProducts = React.useMemo(() => {
-    if (!productSearchQuery.trim() || !Array.isArray(products)) return products
-    return products.filter(product => 
-      product.name.toLowerCase().includes(productSearchQuery.toLowerCase())
-    )
-  }, [products, productSearchQuery])
-  
-  // Add filtered operators function
-  const filteredOperators = React.useMemo(() => {
-    if (!operatorSearchQuery.trim() || !Array.isArray(operators)) return operators
-    return operators.filter(operator => 
-      operator.displayName.toLowerCase().includes(operatorSearchQuery.toLowerCase())
-    )
-  }, [operators, operatorSearchQuery])
+  // Create formatted options for combobox components
+  const countryOptions = useMemo(() => {
+    if (!Array.isArray(countries)) return []
+    return countries.map(country => ({
+      value: country.code,
+      label: country.name.charAt(0).toUpperCase() + country.name.slice(1).toLowerCase(),
+      icon: <CountryFlag iso={country.iso} />
+    }))
+  }, [countries])
+
+  // Add product options for combobox
+  const productOptions = useMemo(() => {
+    if (!Array.isArray(products)) return []
+    return products.map(product => ({
+      value: product.id,
+      label: product.name.replace(/_/g, " "),
+    }))
+  }, [products])
+
+  // Add operator options for the combobox
+  const operatorOptions = useMemo(() => {
+    if (!Array.isArray(operators)) return []
+    return operators.map(operator => ({
+      value: operator.id,
+      label: operator.displayName,
+    }))
+  }, [operators])
 
   // Add a new useEffect to start SMS checking for active orders on component load
   useEffect(() => {
@@ -1964,321 +1961,97 @@ const GetVirtualNumber = () => {
                 Country
                 {isCountryLoading && <Spinner variant="infinite" className="h-4 w-4" />}
               </Label>
-              <Popover
-                open={countryOpen}
-                onOpenChange={(open) => {
-                  setCountryOpen(open)
-                  if (!open) setCountrySearchQuery("")
-                }}
-              >
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    role="combobox"
-                    aria-expanded={countryOpen}
-                    className="w-full justify-between"
-                    disabled={isCountryLoading}
-                  >
-                    {selectedCountry ? (
-                      <div className="flex items-center gap-2 truncate">
-                        {(() => {
-                          const country = countries.find(c => c.code === selectedCountry);
-                          return country ? (
-                            <>
-                              <CountryFlag iso={country.iso} />
-                              <span className="truncate">{country.name}</span>
-                            </>
-                          ) : (
-                            "Select Country"
-                          );
-                        })()}
-                      </div>
-                    ) : (
-                      isCountryLoading ? "Loading countries..." : "Select Country"
-                    )}
-                    {isCountryLoading ? (
-                      <Spinner className="h-4 w-4 ml-2" />
-                    ) : (
-                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                    )}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent 
-                  className="w-full p-0" // Changed from fixed width to full width
-                  side="top"
-                  sideOffset={5}
-                  align="start"
-                  onOpenAutoFocus={(e) => {
-                    e.preventDefault();
-                    const input = document.querySelector('#country-search-input');
-                    if (input) (input as HTMLInputElement).focus();
-                  }}
-                >
-                  <Command>
-                    <CommandInput
-                      id="country-search-input"
-                      placeholder="Search countries..."
-                      value={countrySearchQuery}
-                      onValueChange={setCountrySearchQuery}
-                      autoFocus // Ensure keyboard focus
-                    />
-                    <CommandList className="max-h-[300px] overflow-auto">
-                      <CommandEmpty>
-                        {isCountryLoading ? (
-                          <div className="flex flex-col items-center justify-center py-6">
-                            <Spinner className="h-8 w-8 mb-2" />
-                            <p className="text-sm text-muted-foreground">Loading countries...</p>
-                          </div>
-                        ) : (
-                          "No countries found"
-                        )}
-                      </CommandEmpty>
-                      <CommandGroup>
-                        {Array.isArray(filteredCountries) &&
-                          filteredCountries.map((country) => (
-                            <CommandItem
-                              key={country.code}
-                              value={country.code}
-                              onSelect={(currentValue) => {
-                                handleCountryChange(currentValue)
-                                setCountryOpen(false)
-                              }}
-                            >
-                              <div className="flex items-center gap-2 min-w-0">
-                                <Check
-                                  className={cn(
-                                    "h-4 w-4 shrink-0",
-                                    selectedCountry === country.prefix ? "opacity-100" : "opacity-0",
-                                  )}
-                                />
-                                <CountryFlag iso={country.iso} />
-                                <span className="truncate capitalize">
-                                  {country.name.charAt(0).toUpperCase() + country.name.slice(1).toLowerCase()}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-2 shrink-0 ml-2">
-                                <Badge variant="secondary" className="font-mono text-xs">
-                                  {country.prefix}
-                                </Badge>
-                              </div>
-                            </CommandItem>
-                          ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
+              <Combobox
+                options={countryOptions}
+                value={selectedCountry}
+                onChange={handleCountryChange}
+                placeholder="Select country..."
+                searchPlaceholder="Search countries..."
+                isLoading={isCountryLoading}
+                disabled={isCountryLoading || isLoading}
+                emptyText={isCountryLoading ? "Loading countries..." : "No countries found."}
+                triggerClassName="w-full sm:w-[200px]"
+              />
             </div>
 
-            {/* Service Selection */}
+            {/* Product Selection */}
             <div className="space-y-2">
               <Label className="flex items-center gap-2 text-sm font-medium">
-                Service for OTP
-                {isProductLoading && <Spinner className="h-4 w-4" />}
+                Service
+                {isProductLoading && <Spinner variant="infinite" className="h-4 w-4" />}
               </Label>
-              <Popover
-                open={productOpen}
-                onOpenChange={(open) => {
-                  setProductOpen(open)
-                  if (!open) setServiceSearchQuery("")
-                }}
-              >
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    role="combobox"
-                    aria-expanded={productOpen}
-                    className="w-full justify-between"
-                    disabled={isProductLoading || !selectedCountry}
-                  >
-                    {selectedProduct ? (
-                      <div className="flex items-center justify-between w-full">
-                        <span className="truncate">
-                          {products?.find(product => product.id === selectedProduct)?.name}
-                        </span>
-                        <Badge 
-                          variant="secondary" 
-                          className={cn(
-                            "font-mono text-xs whitespace-nowrap ml-1",
-                            (products?.find(p => p.id === selectedProduct)?.quantity || 0) < 500 
-                              ? "bg-destructive/10 text-destructive hover:bg-destructive/20" 
-                              : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                          )}
-                        >
-                          {products?.find(p => p.id === selectedProduct)?.quantity || 0} avl
-                        </Badge>
-                      </div>
-                    ) : (
-                      isProductLoading ? "Loading services..." : "Select Service"
-                    )}
-                    {isProductLoading ? (
-                      <Spinner className="h-4 w-4 ml-2" />
-                    ) : (
-                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                    )}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent 
-                  className="w-full p-0"
-                  side="top"
-                  sideOffset={5}
-                  align="start"
-                  onOpenAutoFocus={(e) => {
-                    e.preventDefault();
-                    const input = document.querySelector('#service-search-input');
-                    if (input) (input as HTMLInputElement).focus();
-                  }}
-                >
-                  <Command>
-                    <CommandInput
-                      id="service-search-input"
-                      placeholder="Search services..."
-                      value={productSearchQuery}
-                      onValueChange={setProductSearchQuery}
-                      autoFocus
-                    />
-                    <CommandList className="max-h-[300px] overflow-auto">
-                      <CommandEmpty>
-                        {isProductLoading ? (
-                          <div className="flex flex-col items-center justify-center py-6">
-                            <Spinner className="h-8 w-8 mb-2" />
-                            <p className="text-sm text-muted-foreground">Loading services...</p>
-                          </div>
-                        ) : (
-                          "No services found"
+              <Combobox
+                options={productOptions}
+                value={selectedProduct}
+                onChange={(value) => setSelectedProduct(value)}
+                placeholder="Select service..."
+                searchPlaceholder="Search services..."
+                isLoading={isProductLoading}
+                disabled={isProductLoading || !selectedCountry || isLoading}
+                emptyText={isProductLoading ? "Loading services..." : "No services found."}
+                triggerClassName="w-full sm:w-[200px]"
+                renderOption={(option) => (
+                  <div className="flex items-center justify-between w-full">
+                    <span className="truncate">{option.label}</span>
+                    {products.find(p => p.id === option.value) && (
+                      <Badge 
+                        variant="secondary" 
+                        className={cn(
+                          "font-mono text-xs whitespace-nowrap ml-2",
+                          (products.find(p => p.id === option.value)?.quantity ?? 0) < 500 
+                            ? "bg-destructive/10 text-destructive hover:bg-destructive/20" 
+                            : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
                         )}
-                      </CommandEmpty>
-                      <CommandGroup>
-                        {Array.isArray(filteredProducts) &&
-                          filteredProducts.map((product) => (
-                            <CommandItem
-                              key={product.id}
-                              value={product.id}
-                              onSelect={(currentValue) => {
-                                setSelectedProduct(currentValue === selectedProduct ? "" : currentValue)
-                                setProductOpen(false)
-                              }}
-                            >
-                              <Check
-                                className={cn(
-                                  "mr-2 h-4 w-4",
-                                  selectedProduct === product.id ? "opacity-100" : "opacity-0"
-                                )}
-                              />
-                              <div className="flex items-center justify-between w-full">
-                                <span className="truncate">{product.name}</span>
-                                <Badge 
-                                  variant="secondary" 
-                                  className={cn(
-                                    "font-mono text-xs whitespace-nowrap ml-2",
-                                    product.quantity < 500 
-                                      ? "bg-destructive/10 text-destructive hover:bg-destructive/20" 
-                                      : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                                  )}
-                                >
-                                  {product.quantity} avl
-                                </Badge>
-                              </div>
-                            </CommandItem>
-                          ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
+                      >
+                        {products.find(p => p.id === option.value)?.quantity ?? 0} avl
+                      </Badge>
+                    )}
+                  </div>
+                )}
+              />
             </div>
 
             {/* Operator Selection */}
             <div className="space-y-2">
               <Label className="flex items-center gap-2 text-sm font-medium">
                 Operator
-                {isOperatorLoading && <Spinner className="h-4 w-4" />}
+                {isOperatorLoading && <Spinner variant="infinite" className="h-4 w-4" />}
               </Label>
-              <Popover open={operatorOpen} onOpenChange={setOperatorOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    role="combobox"
-                    aria-expanded={operatorOpen}
-                    className="w-full sm:w-[200px] justify-between"
-                    onClick={() => setOperatorOpen(!operatorOpen)}
-                    disabled={isOperatorLoading || !selectedProduct}
-                  >
-                    {selectedOperator ? (
-                      operators.find((operator) => operator.id === selectedOperator)?.displayName
-                    ) : (
-                      isOperatorLoading ? "Loading providers..." : "Select Provider..."
-                    )}
-                    {isOperatorLoading ? (
-                      <Spinner className="h-4 w-4 ml-2" />
-                    ) : (
-                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                    )}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent 
-                  className="w-full p-0"
-                  side="top"
-                  sideOffset={5}
-                  align="start"
-                  onOpenAutoFocus={(e) => {
-                    e.preventDefault();
-                    const input = document.querySelector('#operator-search-input');
-                    if (input) (input as HTMLInputElement).focus();
-                  }}
-                >
-                  <Command>
-                    <CommandInput
-                      id="operator-search-input"
-                      placeholder="Search providers..."
-                      value={operatorSearchQuery}
-                      onValueChange={setOperatorSearchQuery}
-                      autoFocus
-                    />
-                    <CommandList className="max-h-[300px] overflow-auto">
-                      <CommandEmpty>
-                        {isOperatorLoading ? (
-                          <div className="flex flex-col items-center justify-center py-6">
-                            <Spinner className="h-8 w-8 mb-2" />
-                            <p className="text-sm text-muted-foreground">Loading providers...</p>
-                          </div>
-                        ) : (
-                          "No provider found."
-                        )}
-                      </CommandEmpty>
-                      <CommandGroup>
-                        {Array.isArray(filteredOperators) &&
-                          filteredOperators.map((operator) => (
-                            <CommandItem
-                              key={operator.id}
-                              value={operator.id}
-                              onSelect={(currentValue) => {
-                                setSelectedOperator(currentValue === selectedOperator ? "" : currentValue)
-                                setOperatorOpen(false)
-                              }}
-                            >
-                              <Check
-                                className={cn(
-                                  "mr-2 h-4 w-4",
-                                  selectedOperator === operator.id ? "opacity-100" : "opacity-0"
-                                )}
-                              />
-                              <span className="capitalize truncate">{operator.displayName}</span>
-                              <div className="ml-auto flex flex-wrap items-center gap-1 sm:gap-2 shrink-0">
-                                <Badge variant={operator.rate >= 90 ? "secondary" : "outline"} className="font-mono text-xs whitespace-nowrap">
-                                  {operator.rate}%
-                                </Badge>
-                                <Badge variant="secondary" className="font-mono text-xs whitespace-nowrap">
-                                  ₹{convertToINR(operator.cost)}
-                                </Badge>
-                              </div>
-                            </CommandItem>
-                          ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
+              <Combobox
+                options={operatorOptions}
+                value={selectedOperator}
+                onChange={(value) => setSelectedOperator(value)}
+                placeholder="Select operator..."
+                searchPlaceholder="Search operators..."
+                isLoading={isOperatorLoading}
+                disabled={isOperatorLoading || !selectedProduct || isLoading}
+                emptyText={isOperatorLoading ? "Loading operators..." : "No operators found."}
+                triggerClassName="w-full sm:w-[200px]"
+                renderOption={(option) => {
+                  const operator = operators.find(op => op.id === option.value);
+                  return (
+                    <div className="flex items-center justify-between w-full">
+                      <span className="capitalize truncate">{option.label}</span>
+                      {operator && (
+                        <div className="ml-auto flex flex-wrap items-center gap-1 sm:gap-2 shrink-0">
+                          <Badge 
+                            variant={operator.rate >= 90 ? "secondary" : "outline"} 
+                            className="font-mono text-xs whitespace-nowrap"
+                          >
+                            {operator.rate}%
+                          </Badge>
+                          <Badge 
+                            variant="secondary" 
+                            className="font-mono text-xs whitespace-nowrap"
+                          >
+                            ₹{convertToINR(operator.cost)}
+                          </Badge>
+                        </div>
+                      )}
+                    </div>
+                  );
+                }}
+              />
             </div>
           </div>
         )}
