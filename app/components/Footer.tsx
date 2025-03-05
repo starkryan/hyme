@@ -10,7 +10,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { Linkedin, Moon, Sun, Twitter } from "lucide-react"
+import { Moon, Sun } from "lucide-react"
+import { RiTelegram2Fill } from "react-icons/ri"
+import { FaWhatsapp } from "react-icons/fa"
+
 
 function Footerdemo() {
   const [isDarkMode, setIsDarkMode] = React.useState(false);
@@ -62,26 +65,30 @@ function Footerdemo() {
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant="outline" size="icon" className="rounded-full">
-                      <Twitter className="h-4 w-4" />
-                      <span className="sr-only">Twitter</span>
-                    </Button>
+                    <a href="https://wa.me/919826000000">
+                      <Button variant="outline" size="icon" className="rounded-full">
+                        <FaWhatsapp className="h-4 w-4 text-green-500" />
+                        <span className="sr-only">Whatsapp</span>
+                      </Button>
+                    </a>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Follow us on Twitter</p>
+                    <p>Connect with us on Whatsapp</p>
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant="outline" size="icon" className="rounded-full">
-                      <Linkedin className="h-4 w-4" />
-                      <span className="sr-only">LinkedIn</span>
-                    </Button>
+                    <a href="https://t.me/otpmaya">
+                      <Button variant="outline" size="icon" className="rounded-full">
+                        <RiTelegram2Fill className="h-4 w-4 text-blue-500" />
+                        <span className="sr-only">Telegram</span>
+                      </Button>
+                    </a>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Connect with us on LinkedIn</p>
+                    <p>Connect with us on Telegram</p>
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>

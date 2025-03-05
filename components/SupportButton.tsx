@@ -8,18 +8,38 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { IconBrandTelegram } from '@tabler/icons-react';
+import { useEffect, useState } from 'react';
 
 // Update this with your actual Telegram username or support channel
 const TELEGRAM_SUPPORT_LINK = 'https://t.me/otpmaya';
 
 export function SupportButton() {
+  const [showGreeting, setShowGreeting] = useState(false);
+
+  useEffect(() => {
+    // Show greeting after a short delay
+    const timer = setTimeout(() => {
+      setShowGreeting(true);
+    }, 2000);
+
+    // Hide greeting after some time
+    const hideTimer = setTimeout(() => {
+      setShowGreeting(false);
+    }, 8000);
+
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(hideTimer);
+    };
+  }, []);
+
   const handleSupportClick = () => {
     window.open(TELEGRAM_SUPPORT_LINK, '_blank');
   };
 
   return (
     <TooltipProvider>
-      <Tooltip>
+      <Tooltip open={showGreeting}>
         <TooltipTrigger asChild>
           <Button
             onClick={handleSupportClick}
@@ -29,8 +49,8 @@ export function SupportButton() {
             <IconBrandTelegram className="h-6 w-6 text-white" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="left">
-          <p>Contact Support on Telegram</p>
+        <TooltipContent side="left" className="bg-white text-black">
+          <p>Hi! How may I help you? 👋</p>
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>

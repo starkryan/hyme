@@ -11,6 +11,7 @@ import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
+import Image from 'next/image'
 
 interface StepIndicatorProps {
   number: number
@@ -52,13 +53,15 @@ export function RechargeForm() {
   const [showQR, setShowQR] = useState(false)
   const [isLoadingQR, setIsLoadingQR] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [showManualQR, setShowManualQR] = useState(false)
+  const [manualQRVisible, setManualQRVisible] = useState(false)
+  const [copied, setCopied] = useState(false)
   
   const upiId = process.env.NEXT_PUBLIC_UPI_ID || 'example@upi'
-  const upiQrUrl = `upi://pay?pa=${upiId}&pn=OTPMaya&am=${amount}&cu=INR`
 
   // Handle amount change and QR code generation
   useEffect(() => {
-    if (amount < 50) {
+    if (amount < 20) {
       setShowQR(false)
       setCurrentStep(1)
       return
@@ -86,7 +89,9 @@ export function RechargeForm() {
   const copyUPIId = async () => {
     try {
       await navigator.clipboard.writeText(upiId)
+      setCopied(true)
       toast.success('UPI ID copied to clipboard')
+      setTimeout(() => setCopied(false), 2000)
     } catch (error) {
       toast.error('Failed to copy UPI ID')
     }
@@ -101,8 +106,8 @@ export function RechargeForm() {
       return
     }
 
-    if (amount < 50) {
-      toast.error('Minimum recharge amount is ₹50')
+    if (amount < 20) {
+      toast.error('Minimum recharge amount is ₹20')
       return
     }
 
@@ -131,6 +136,8 @@ export function RechargeForm() {
       setIsSubmitting(false)
     }
   }
+
+  const toggleQRView = () => setShowManualQR(!showManualQR)
 
   return (
     <div className="w-full max-w-2xl mx-auto space-y-6 p-4 sm:p-6">
@@ -167,28 +174,28 @@ export function RechargeForm() {
               <Input
                 id="amount"
                 type="number"
-                placeholder="Enter amount (min ₹50)"
+                placeholder="Enter amount (min ₹20)"
                 value={amount || ''}
                 onChange={(e) => setAmount(Number(e.target.value))}
-                min={50}
+                min={20}
                 className="pl-8"
                 disabled={currentStep > 1 && isSubmitting}
               />
             </div>
           </div>
 
-          {amount > 0 && amount < 50 && (
+          {amount > 0 && amount < 20 && (
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
-                Minimum recharge amount is ₹50
+                Minimum recharge amount is ₹20
               </AlertDescription>
             </Alert>
           )}
         </div>
 
         {/* Payment Section */}
-        {amount >= 50 && (
+        {amount >= 20 && (
           <Card className="p-6">
             {isLoadingQR ? (
               <div className="flex flex-col items-center justify-center py-8">
@@ -197,13 +204,14 @@ export function RechargeForm() {
               </div>
             ) : showQR && (
               <div className="space-y-8">
-                {/* QR Code */}
                 <div className="flex flex-col items-center justify-center space-y-4">
                   <div className="relative aspect-square w-48 h-48 bg-white p-4 rounded-lg border">
-                    <img
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(upiQrUrl)}`}
+                    <Image
+                      src="/qr.jpg"
                       alt="UPI QR Code"
-                      className="w-full h-full"
+                      className="w-full h-full object-contain"
+                      width={200}
+                      height={200}
                     />
                   </div>
                   <div className="text-center space-y-2">
@@ -216,9 +224,16 @@ export function RechargeForm() {
                         variant="ghost" 
                         size="icon"
                         onClick={copyUPIId}
-                        className="h-8 w-8"
+                        className={cn(
+                          "h-8 w-8 transition-colors",
+                          copied && "text-green-600 hover:text-green-600"
+                        )}
                       >
-                        <Copy className="h-4 w-4" />
+                        {copied ? (
+                          <CheckCircle2 className="h-4 w-4" />
+                        ) : (
+                          <Copy className="h-4 w-4" />
+                        )}
                       </Button>
                     </div>
                   </div>
@@ -251,7 +266,7 @@ export function RechargeForm() {
                 <Button
                   type="submit"
                   className="w-full"
-                  disabled={isSubmitting || amount < 50 || !utrNumber || utrNumber.length !== 12}
+                  disabled={isSubmitting || amount < 20 || !utrNumber || utrNumber.length !== 12}
                 >
                   {isSubmitting ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
