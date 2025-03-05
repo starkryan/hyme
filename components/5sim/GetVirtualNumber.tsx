@@ -572,8 +572,17 @@ const GetVirtualNumber = () => {
       try {
         const session = await getActiveOtpSession(user.id)
         if (session) {
-          setSmsCode(session.sms_code || null)
-          setFullSms(session.full_sms || null)
+          // Set SMS data first to ensure it's displayed immediately
+          if (session.sms_code) {
+            setSmsCode(session.sms_code)
+            setFullSms(session.full_sms || null)
+            
+            // Show success toast for OTP
+            toast.success("OTP Loaded", {
+              description: `Your OTP is: ${session.sms_code}`
+            })
+          }
+
           setNumber({
             phone: session.phone_number,
             id: session.order_id,
@@ -582,19 +591,18 @@ const GetVirtualNumber = () => {
           setOrderStatus(session.status as OrderStatus)
           setOrderCreatedAt(new Date(session.created_at))
           
-          // Store the service name for display
           if (session.service) {
-            // Format the service name from database (replace underscores with spaces)
             setActiveProductName(session.service.replace(/_/g, " "))
           }
 
-          // If session is PENDING, restart SMS checking
-          if (session.status === "PENDING") {
+          // Always start SMS checking for non-final statuses
+          if (!["CANCELED", "TIMEOUT", "FINISHED", "BANNED"].includes(session.status)) {
             setIsCheckingSms(true)
+            startCheckingSms(session.order_id)
           }
           
-          // Synchronize with the actual order status from 5SIM API
-          syncOrderStatus(session.order_id)
+          // Sync with 5SIM API
+          await syncOrderStatus(session.order_id)
         }
       } catch (error) {
         console.error("Error loading active session:", error)
@@ -606,93 +614,57 @@ const GetVirtualNumber = () => {
 
   // Add a new function to synchronize local state with 5SIM API
   const syncOrderStatus = async (orderId: string) => {
-    // Removed console.log for deployment
-    
     try {
-      setIsCheckingSms(true);
+      const result = await getSmsCode(orderId);
       
-      const response = await getSmsCode(orderId);
-      // Removed console.log for deployment
-      
-      // Handle response being undefined
-      if (!response) {
-        // Removed console.warn for deployment
+      if (!result) {
         return null;
-      }
-      
-      // Update state with order details
-      setOrderStatus(response.status);
-      setOrderCreatedAt(new Date(response.created_at));
-      
-      // Update product name from API response if available
-      if (response.product) {
-        // Removed console.log for deployment
-        setActiveProductName(response.product.replace(/_/g, " "));
-      }
-      
-      // Check if SMS has been received
-      if (response?.sms && response.sms.length > 0) {
-        // Get the latest SMS
-        const latestSms = response.sms[response.sms.length - 1];
-        setSmsCode(latestSms?.code || null);
-        setFullSms(latestSms?.text || null);
-        
-        // Stop checking for SMS since we've received it
-        if (smsCheckInterval.current) {
-          clearInterval(smsCheckInterval.current);
-          smsCheckInterval.current = null;
-        }
-        
-        // Stop the timeout timer
-        setIsTimeoutActive(false);
-        if (timeoutTimer) {
-          clearTimeout(timeoutTimer);
-          setTimeoutTimer(null); // Fix: Use the setter function instead of direct assignment
-        }
-        
-        // Update balance after SMS received
-        await forceBalanceUpdate();
       }
 
-      return response;
-    } catch (error: any) {
-      // Removed console.error for deployment
-      
-      // Handle "order not found" errors gracefully
-      if (error.message?.includes('order not found')) {
-        // If order is not found, it may have been cancelled or completed
-        // Just stop checking and don't show error toast
-        cleanupTimers();
-        return null;
+      // Update status
+      if (result.status) {
+        setOrderStatus(result.status as OrderStatus);
+        updateOtpData({ orderStatus: result.status });
       }
-      
-      // Handle different types of errors with helpful messages
-      // For deployment, only show these if not in automatic polling mode
-      if (!isPollingAutomatically.current) {
-        if (error.message?.includes('non-JSON response')) {
-          setError("API authentication error. Please check your API credentials in the environment variables.");
-          toast.error("API authentication error", {
-            description: "Your 5sim API key may be invalid or expired."
-          });
-        } else if (error.message?.includes('Failed to parse API response')) {
-          setError("Error reading response from 5sim. The service might be experiencing issues.");
-          toast.error("Could not read 5sim response", {
-            description: "Try again later or contact support if this persists."
-          });
-        } else if (error.message?.includes('Authentication error')) {
-          setError("API authentication error. Please check your credentials.");
-          toast.error("Authentication error", {
-            description: "Please ensure your API key is correct."
-          });
-        } else {
-          // Don't show generic error toasts during automatic polling
-          setError("Failed to check order status. Please try again.");
+
+      // Process SMS if available
+      if (result.sms && result.sms.length > 0) {
+        const lastSms = result.sms[result.sms.length - 1];
+        const smsText = lastSms.text || "";
+        
+        // Only update if we don't already have an SMS code
+        if (!smsCode) {
+          setFullSms(smsText);
+          
+          // Extract OTP using regex
+          const otpMatch = smsText.match(/\b\d{4,6}\b/);
+          if (otpMatch) {
+            setSmsCode(otpMatch[0]);
+            updateOtpData({ smsCode: otpMatch[0], fullSms: smsText });
+            
+            toast.success("OTP Found!", {
+              description: `Your OTP is: ${otpMatch[0]}`
+            });
+          }
         }
       }
-      
+
+      // Update expiry time
+      if (result.expires) {
+        const expiryDate = new Date(result.expires);
+        if (!isNaN(expiryDate.getTime())) {
+          const timeoutDuration = expiryDate.getTime() - Date.now();
+          if (timeoutDuration > 0) {
+            setOtpTimeout(Math.floor(timeoutDuration / 1000));
+            setIsTimeoutActive(true);
+          }
+        }
+      }
+
+      return result;
+    } catch (error: any) {
+      // Handle errors silently during sync
       return null;
-    } finally {
-      setIsCheckingSms(false);
     }
   };
 
@@ -918,9 +890,13 @@ const GetVirtualNumber = () => {
       });
 
       // 8. Start checking for SMS in the background
-      // Removed console.log for deployment
+      // Explicitly set checking flag to true for immediate UI feedback
       setIsCheckingSms(true);
-      startCheckingSms(data.id);
+      
+      // Start checking for SMS immediately with a short delay to ensure state is updated
+      setTimeout(() => {
+        startCheckingSms(data.id);
+      }, 100);
 
       // 9. Refresh wallet balance asynchronously (don't await)
       refetchBalance().catch(err => 
@@ -1703,86 +1679,85 @@ const GetVirtualNumber = () => {
 
   // Define checkSms function 
   const checkSms = async (orderIdToUse: number) => {
-    // Removed console.log for deployment
     if (!orderIdToUse) {
-      // Removed console.error for deployment
       return;
     }
 
     try {
       const result = await getSmsCode(String(orderIdToUse));
-      // Removed console.log for deployment
-
-      // Ensure we have a valid data object
+      
       if (!result) {
-        // Removed console.log for deployment
         return;
       }
       
-      // Now we can safely access the data properties
-      const data = result; // For clarity in the code
+      const data = result;
 
+      // Always update status first
       if (data.status) {
-        setOrderStatus(data.status as OrderStatus);
-        updateOtpData({ orderStatus: data.status });
+        const newStatus = data.status as OrderStatus;
+        setOrderStatus(newStatus);
+        updateOtpData({ orderStatus: newStatus });
+        
+        // If status is CANCELED but we have SMS, we still want to process them
+        if (newStatus === "CANCELED" && (!data.sms || data.sms.length === 0)) {
+          cleanupTimers();
+          return;
+        }
       }
       
-      // Update product name from API response if available
+      // Update product name if available
       if (data.product) {
-        // Removed console.log for deployment
         setActiveProductName(data.product.replace(/_/g, " "));
-        // Don't update OTP data as service field doesn't exist in OtpData interface
       }
 
+      // Process SMS messages if they exist
       if (data.sms && data.sms.length > 0) {
-        // We have actual SMS content
-        // Removed console.log for deployment
-        
-        // Process SMS: Extract OTP code
         const lastSms = data.sms[data.sms.length - 1];
         let smsText = lastSms.text || "";
         setFullSms(smsText);
         
-        // Extract OTP using regex
-        const otpMatch = smsText.match(/\b\d{4,6}\b/);
+        // Extract OTP using regex - look for 4-8 digit sequences 
+        // This improved regex looks for common OTP patterns
+        const otpMatch = smsText.match(/\b\d{4,8}\b/) || smsText.match(/code:?\s*(\d+)/i) || smsText.match(/otp:?\s*(\d+)/i);
+        
         if (otpMatch) {
-          setSmsCode(otpMatch[0]);
-          updateOtpData({ smsCode: otpMatch[0], fullSms: smsText });
+          const extractedOtp = otpMatch[1] || otpMatch[0]; // Use the captured group if it exists
+          setSmsCode(extractedOtp);
+          updateOtpData({ smsCode: extractedOtp, fullSms: smsText });
           
-          // Stop checking SMS since we found one
-          setIsCheckingSms(false);
+          // Don't stop checking automatically - let the user decide when to finish
+          // Instead, just reduce the frequency of checks
+          const checkInterval = 5000; // Check every 5 seconds after OTP is found
           if (smsCheckInterval.current) {
             clearInterval(smsCheckInterval.current);
-            smsCheckInterval.current = null;
+            const intervalId = setInterval(() => checkSms(orderIdToUse), checkInterval);
+            smsCheckInterval.current = intervalId as unknown as NodeJS.Timeout;
           }
 
           // Update order status to RECEIVED if not already
-          if (orderStatus !== "RECEIVED") {
+          if (data.status !== "CANCELED") {
             setOrderStatus("RECEIVED");
             updateOtpData({ orderStatus: "RECEIVED" });
           }
           
           toast.success("OTP Received!", {
-            description: `Your OTP is: ${otpMatch[0]}`
+            description: `Your OTP is: ${extractedOtp}`
           });
         } else {
-          // SMS received but no OTP detected
-          // Removed console.log for deployment
+          // Keep checking if no OTP found in the SMS
+          if (!isCheckingSms) {
+            setIsCheckingSms(true);
+          }
           toast.warning("SMS received but no OTP found", {
             description: "We received an SMS but couldn't detect a valid OTP code."
           });
         }
       } else if (data.status === "RECEIVED") {
-        // Special case: API reports RECEIVED but no SMS content yet
-        // Removed console.log for deployment
-        
-        // Keep checking in case the SMS content arrives later
+        // API reports RECEIVED but no SMS content yet
         if (!isCheckingSms) {
           setIsCheckingSms(true);
         }
         
-        // Don't set smsCode since we don't have actual content yet
-        // For deployment, only show this toast once per session to avoid spam
         if (!hasShownReceivedStatusToast.current) {
           toast.info("SMS status is RECEIVED", {
             description: "The system reports SMS is on the way but content is not available yet. Still waiting..."
@@ -1791,56 +1766,32 @@ const GetVirtualNumber = () => {
         }
       }
 
-      // Update status display with rich HTML
+      // Handle expiry time
       if (data.expires) {
         const expiryDate = new Date(data.expires);
         if (!isNaN(expiryDate.getTime())) {
           const timeoutDuration = expiryDate.getTime() - Date.now();
           if (timeoutDuration > 0) {
-            // Set timeout timer
             setOtpTimeout(Math.floor(timeoutDuration / 1000));
             setIsTimeoutActive(true);
           }
         }
       }
     } catch (error: any) {
-      // Removed console.error for deployment
-      
-      // For order not found or already completed errors, handle gracefully
       if (error.message?.includes('order not found')) {
-        // If order is not found, it may have been cancelled or completed
-        // Just stop checking and don't show error toast
-        if (smsCheckInterval.current) {
-          clearInterval(smsCheckInterval.current);
-          smsCheckInterval.current = null;
-          setIsCheckingSms(false);
-        }
+        cleanupTimers();
         return;
       }
       
-      // Don't show toast errors on every interval check unless it's a critical error
-      // This prevents too many error notifications during automatic polling
-      if (
-        error.message?.includes('API authentication error') || 
-        error.message?.includes('non-JSON response') ||
-        error.message?.includes('Failed to parse API response') 
-      ) {
-        // Only update the error state without showing toast for polling
-        setError(error.message || "Error checking for SMS");
-        
-        // Stop the interval to prevent repeated errors
-        if (smsCheckInterval.current) {
-          clearInterval(smsCheckInterval.current);
-          smsCheckInterval.current = null;
-          setIsCheckingSms(false);
-          
-          // Only show one toast for this critical error
-          // For deployment, only show if not in automatic polling mode
-          if (!isPollingAutomatically.current) {
-            toast.error("API connection issue", {
-              description: "Error communicating with 5sim. Check your API credentials."
-            });
-          }
+      if (!isPollingAutomatically.current) {
+        if (error.message?.includes('API authentication error') || 
+            error.message?.includes('non-JSON response') ||
+            error.message?.includes('Failed to parse API response')) {
+          setError(error.message || "Error checking for SMS");
+          cleanupTimers();
+          toast.error("API connection issue", {
+            description: "Error communicating with 5sim. Check your API credentials."
+          });
         }
       }
     }
@@ -1852,7 +1803,6 @@ const GetVirtualNumber = () => {
     const orderIdToUse = initialOrderId ? Number(initialOrderId) : orderId;
     
     if (!orderIdToUse) {
-      // Removed console.error for deployment
       setIsCheckingSms(false);
       return;
     }
@@ -1867,10 +1817,8 @@ const GetVirtualNumber = () => {
       smsCheckInterval.current = null;
     }
     
-    // Check if we already know status is RECEIVED (from state)
-    const checkInterval = orderStatus === "RECEIVED" ? 3000 : 10000; // 3s for RECEIVED status, 10s for others
-    
-    // Removed console.log for deployment
+    // Always use 1000ms (1 second) for more frequent checking
+    const checkInterval = 1000; 
     
     // Set automatic polling flag to avoid showing error toasts during polling
     isPollingAutomatically.current = true;
@@ -1881,6 +1829,9 @@ const GetVirtualNumber = () => {
     // Set interval with appropriate frequency
     const intervalId = setInterval(() => checkSms(orderIdToUse), checkInterval);
     smsCheckInterval.current = intervalId as unknown as NodeJS.Timeout;
+    
+    // Set isCheckingSms flag to true to show the waiting UI
+    setIsCheckingSms(true);
   };
 
   // Add a manual SMS check function
@@ -1930,6 +1881,22 @@ const GetVirtualNumber = () => {
       operator.displayName.toLowerCase().includes(operatorSearchQuery.toLowerCase())
     )
   }, [operators, operatorSearchQuery])
+
+  // Add a new useEffect to start SMS checking for active orders on component load
+  useEffect(() => {
+    // Check if we have an active order that might be waiting for SMS
+    if (user && number && orderId && 
+        (orderStatus === "PENDING" || orderStatus === "RECEIVED") && 
+        !isCheckingSms && !smsCode) {
+      console.log("Starting automatic SMS checking for order:", orderId);
+      
+      // Start checking for SMS
+      startCheckingSms(orderId);
+      
+      // Set checking flag to show proper UI state
+      setIsCheckingSms(true);
+    }
+  }, [user, number, orderId, orderStatus, isCheckingSms, smsCode]);
 
   return (
     <Card className="w-full ">

@@ -324,25 +324,59 @@ export function ReceivedNumberView({
       {/* Waiting for OTP */}
       {(isCheckingSms || isRetrying || (!smsCode && (orderStatus === "PENDING" || orderStatus === "RECEIVED"))) &&
         !smsCode && (
-          <Card className="border-yellow-200 dark:border-yellow-800 shadow-sm">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="relative flex-shrink-0">
+          <Card className="border-yellow-200 dark:border-yellow-800 shadow-sm animate-in fade-in-50 duration-300">
+            <CardHeader className="pb-2 bg-yellow-50 dark:bg-yellow-950/30">
+              <div className="flex items-center gap-2">
+                <div className="relative">
                   <div
                     className="absolute inset-0 rounded-full bg-yellow-100 dark:bg-yellow-900/30 animate-ping opacity-75"
-                    style={{ animationDuration: "2s" }}
+                    style={{ animationDuration: "1.5s" }}
                   ></div>
-                  <div className="relative rounded-full bg-yellow-200 dark:bg-yellow-800 p-2">
-                    <Clock className="h-5 w-5 text-yellow-600 dark:text-yellow-500" />
+                  <Clock className="h-5 w-5 text-yellow-600 dark:text-yellow-500 relative" />
+                </div>
+                <CardTitle className="text-base font-medium text-yellow-700 dark:text-yellow-500">
+                  {isRetrying ? `Checking for SMS (${retryAttempts + 1}/${maxRetryAttempts})` : "Waiting for OTP..."}
+                </CardTitle>
+              </div>
+            </CardHeader>
+            
+            <CardContent className="pt-3 pb-4">
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 space-y-1">
+                    <p className="text-sm">The system is actively checking for new messages every second</p>
+                    <p className="text-xs text-muted-foreground">
+                      OTP delivery typically takes 15-60 seconds, but can sometimes take longer depending on the service
+                    </p>
                   </div>
                 </div>
-
-                <div>
-                  <h3 className="text-sm font-medium">
-                    {isRetrying ? `Checking for SMS (${retryAttempts + 1}/${maxRetryAttempts})` : "Waiting for OTP..."}
-                  </h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">Checking for new messages every second</p>
+                
+                {/* Progress animation */}
+                <div className="w-full bg-yellow-100 dark:bg-yellow-900/20 rounded-full h-1.5 overflow-hidden">
+                  <div 
+                    className="bg-yellow-500 h-full rounded-full animate-pulse"
+                    style={{ 
+                      width: '30%', 
+                      animation: 'indeterminateProgress 1.5s ease-in-out infinite',
+                    }}
+                  ></div>
                 </div>
+                
+                <style jsx>{`
+                  @keyframes indeterminateProgress {
+                    0% {
+                      transform: translateX(-100%);
+                      width: 30%;
+                    }
+                    50% {
+                      width: 50%;
+                    }
+                    100% {
+                      transform: translateX(170%);
+                      width: 30%;
+                    }
+                  }
+                `}</style>
               </div>
             </CardContent>
           </Card>
@@ -350,23 +384,26 @@ export function ReceivedNumberView({
 
       {/* Display SMS Code */}
       {smsCode && (
-        <Card className="border-green-200 dark:border-green-800 shadow-sm">
+        <Card className="border-green-200 dark:border-green-800 shadow-sm animate-in fade-in-50 duration-300">
           <CardHeader className="pb-3 bg-green-50 dark:bg-green-950/30">
             <div className="flex items-center gap-2">
-              <CircleCheck className="h-4 w-4 text-green-600 dark:text-green-500" />
-              <CardTitle className="text-sm font-medium text-green-700 dark:text-green-500">OTP Received</CardTitle>
+              <div className="relative">
+                <div className="absolute inset-0 rounded-full bg-green-300 dark:bg-green-700 animate-ping opacity-50"></div>
+                <CircleCheck className="h-5 w-5 text-green-600 dark:text-green-500 relative" />
+              </div>
+              <CardTitle className="text-base font-medium text-green-700 dark:text-green-500">OTP Received!</CardTitle>
             </div>
           </CardHeader>
 
           <CardContent className="pt-3 pb-4">
-            <div className="flex flex-col gap-3">
-              <div className="flex justify-center items-center gap-2 py-2">
+            <div className="flex flex-col gap-4">
+              <div className="flex justify-center items-center gap-2 py-3">
                 {smsCode.split("").map((digit, index) => (
                   <div
                     key={index}
-                    className="flex items-center justify-center w-9 h-11 rounded-md border-2 border-green-500/60 bg-green-50/60 dark:bg-green-950/20"
+                    className="flex items-center justify-center w-11 h-14 rounded-md border-2 border-green-500/60 bg-green-50/60 dark:bg-green-950/20 shadow-sm"
                   >
-                    <span className="text-lg font-bold text-green-700 dark:text-green-400">{digit}</span>
+                    <span className="text-xl font-bold text-green-700 dark:text-green-400">{digit}</span>
                   </div>
                 ))}
               </div>
@@ -375,12 +412,12 @@ export function ReceivedNumberView({
                 variant="outline"
                 size="sm"
                 onClick={() => handleCopyToClipboard(smsCode, setIsSmsCodeCopied)}
-                className="h-8 mx-auto"
+                className="h-9 mx-auto"
               >
                 {isSmsCodeCopied ? (
                   <div className="flex items-center gap-1.5">
                     <Check className="h-3.5 w-3.5 text-green-500" />
-                    <span className="text-xs text-green-500">Copied</span>
+                    <span className="text-xs text-green-500">Copied to Clipboard</span>
                   </div>
                 ) : (
                   <div className="flex items-center gap-1.5">
@@ -404,7 +441,7 @@ export function ReceivedNumberView({
                     </Button>
                   </div>
 
-                  <div className="p-2 rounded-md border border-green-200 dark:border-green-800 bg-green-50/30 dark:bg-green-950/10 text-xs overflow-auto max-h-24">
+                  <div className="p-3 rounded-md border border-green-200 dark:border-green-800 bg-green-50/30 dark:bg-green-950/10 text-xs overflow-auto max-h-32">
                     {fullSms}
                   </div>
                 </div>
