@@ -56,6 +56,7 @@ export function RechargeForm() {
   const [showManualQR, setShowManualQR] = useState(false)
   const [manualQRVisible, setManualQRVisible] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [isCheckingUTR, setIsCheckingUTR] = useState(false)
   
   const upiId = process.env.NEXT_PUBLIC_UPI_ID || 'example@upi'
 
@@ -97,6 +98,27 @@ export function RechargeForm() {
     }
   }
 
+  // Check if UTR already exists in the database
+  const checkUTRExists = async (utrNumber: string) => {
+    setIsCheckingUTR(true)
+    try {
+      const { data, error } = await supabase
+        .from('recharge_requests')
+        .select('utr_number')
+        .eq('utr_number', utrNumber)
+        .limit(1)
+      
+      if (error) throw error
+      
+      return data && data.length > 0
+    } catch (error) {
+      console.error('Error checking UTR:', error)
+      return false
+    } finally {
+      setIsCheckingUTR(false)
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!user) return
@@ -111,7 +133,16 @@ export function RechargeForm() {
       return
     }
 
+    // Check if UTR already exists
     setIsSubmitting(true)
+    const utrExists = await checkUTRExists(utrNumber)
+    
+    if (utrExists) {
+      toast.error('This UTR number has already been used. Please enter a different UTR number.')
+      setIsSubmitting(false)
+      return
+    }
+
     try {
       const { error } = await supabase
         .from('recharge_requests')
@@ -217,10 +248,10 @@ export function RechargeForm() {
                   <div className="text-center space-y-2">
                     <p className="text-sm text-muted-foreground">Scan QR or pay to</p>
                     <div className="flex items-center justify-center gap-2">
-                      <code className="bg-secondary px-3 py-1.5 rounded-md text-sm font-medium">
+                      {/* <code className="bg-secondary px-3 py-1.5 rounded-md text-sm font-medium">
                         {upiId}
-                      </code>
-                      <Button 
+                      </code> */}
+                      {/* <Button 
                         variant="ghost" 
                         size="icon"
                         onClick={copyUPIId}
@@ -234,7 +265,7 @@ export function RechargeForm() {
                         ) : (
                           <Copy className="h-4 w-4" />
                         )}
-                      </Button>
+                      </Button> */}
                     </div>
                   </div>
                 </div>
@@ -251,7 +282,7 @@ export function RechargeForm() {
                       if (value.length <= 12) setUtrNumber(value)
                     }}
                     maxLength={12}
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || isCheckingUTR}
                     className={cn(
                       "font-mono transition-all duration-200",
                       utrNumber.length === 12 && "border-primary"
@@ -266,14 +297,19 @@ export function RechargeForm() {
                 <Button
                   type="submit"
                   className="w-full"
-                  disabled={isSubmitting || amount < 20 || !utrNumber || utrNumber.length !== 12}
+                  disabled={isSubmitting || isCheckingUTR || amount < 20 || !utrNumber || utrNumber.length !== 12}
                 >
-                  {isSubmitting ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {isSubmitting || isCheckingUTR ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      {isCheckingUTR ? 'Verifying UTR...' : 'Submitting...'}
+                    </>
                   ) : (
-                    <ArrowRight className="mr-2 h-4 w-4" />
+                    <>
+                      <ArrowRight className="mr-2 h-4 w-4" />
+                      Submit Recharge Request
+                    </>
                   )}
-                  Submit Recharge Request
                 </Button>
               </div>
             )}
