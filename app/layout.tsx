@@ -134,6 +134,10 @@ export default function RootLayout({
     <ClerkProvider 
       appearance={{ baseTheme: dark }}
       publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+      signInUrl="/signin"
+      signUpUrl="/signup"
+      afterSignInUrl="/dashboard"
+      afterSignUpUrl="/dashboard"
     >
       <html lang="en" className="h-full">
         <body className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-background`}>
