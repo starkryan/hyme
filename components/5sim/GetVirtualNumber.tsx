@@ -79,7 +79,7 @@ interface Country {
 const COMMISSION_RATE = 0.20; // 20% commission
 
 const GetVirtualNumber = () => {
-  const { user } = useUser()
+  const { user, isLoaded: isUserLoaded } = useUser()
   const { otpData, updateOtpData, clearOtpData } = useOtpPersist("virtual-number-otp")
   const [selectedCountry, setSelectedCountry] = useState<string>("")
   const [selectedProduct, setSelectedProduct] = useState<string>("")
@@ -126,7 +126,7 @@ const GetVirtualNumber = () => {
   const [usingFallbackRate, setUsingFallbackRate] = useState(false);
   const [activeProductName, setActiveProductName] = useState<string | undefined>(undefined);
   
-  // Add this query for real-time wallet balance
+  // Add this query for real-time wallet balance with proper conditioning
   const { 
     data: walletBalance = 0, 
     isLoading: isWalletLoading,
@@ -134,7 +134,7 @@ const GetVirtualNumber = () => {
   } = useQuery({
     queryKey: ['walletBalance', user?.id],
     queryFn: () => getWalletBalance(user?.id as string),
-    enabled: !!user?.id,
+    enabled: !!isUserLoaded && !!user?.id,
     refetchInterval: 30000, // Refetch every 30 seconds
     staleTime: 10000, // Consider data stale after 10 seconds
     refetchOnWindowFocus: true, // Refetch when window regains focus
@@ -1864,7 +1864,7 @@ const GetVirtualNumber = () => {
 
   // Add a call to this function in the useEffect where you load the component data
   useEffect(() => {
-    if (user) {
+    if (isUserLoaded && user) {
       setIsLoading(true);
       
       // Use the correctly scoped functions
@@ -1877,6 +1877,8 @@ const GetVirtualNumber = () => {
           await forceBalanceUpdate();
         } catch (error) {
           console.error("Error during startup cleanup:", error);
+          // Don't throw error, handle gracefully
+          toast.error("Error initializing data. Please refresh the page.");
         } finally {
           setIsLoading(false);
         }
@@ -1884,7 +1886,7 @@ const GetVirtualNumber = () => {
       
       loadInitialData();
     }
-  }, [user]);
+  }, [isUserLoaded, user]);
 
   // Create formatted options for combobox components
   const countryOptions = useMemo(() => {
@@ -1916,7 +1918,7 @@ const GetVirtualNumber = () => {
   // Add a new useEffect to start SMS checking for active orders on component load
   useEffect(() => {
     // Check if we have an active order that might be waiting for SMS
-    if (user && number && orderId && 
+    if (isUserLoaded && user && number && orderId && 
         (orderStatus === "PENDING" || orderStatus === "RECEIVED") && 
         !isCheckingSms && !smsCode) {
       console.log("Starting automatic SMS checking for order:", orderId);
@@ -1927,7 +1929,7 @@ const GetVirtualNumber = () => {
       // Set checking flag to show proper UI state
       setIsCheckingSms(true);
     }
-  }, [user, number, orderId, orderStatus, isCheckingSms, smsCode]);
+  }, [isUserLoaded, user, number, orderId, orderStatus, isCheckingSms, smsCode]);
 
   return (
     <Card className="w-full ">
