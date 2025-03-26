@@ -76,7 +76,7 @@ interface Country {
 }
 
 // Add a constant for the commission rate
-const COMMISSION_RATE = 0.40; // 40% commission
+const COMMISSION_RATE = 0.50; // 50% commission
 
 const GetVirtualNumber = () => {
   const { user, isLoaded: isUserLoaded } = useUser()
