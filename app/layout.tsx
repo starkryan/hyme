@@ -49,14 +49,14 @@ export const metadata: Metadata = {
     address: false,
     date: false,
   },
-  metadataBase: new URL('https://otpmaya.com'),
+  metadataBase: new URL('https://otpmaya.shop'),
   alternates: {
     canonical: '/',
   },
   openGraph: {
     type: 'website',
     locale: 'en_US',
-    url: 'https://otpmaya.com',
+    url: 'https://otpmaya.shop',
     title: 'OTPMaya - Virtual Number Service for SMS Verification',
     description: 'Get instant, secure, and reliable virtual phone numbers for SMS verification.',
     siteName: 'OTPMaya',
